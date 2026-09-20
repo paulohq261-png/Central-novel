@@ -44,10 +44,24 @@ HTML_TEMPLATE = """
         <div id="resultado" class="mt-6 hidden">
             <h2 class="text-lg font-bold text-blue-400 mb-2">Resultado:</h2>
             <div id="textoGerado" class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-sm text-slate-300 max-h-60 overflow-y-auto whitespace-pre-wrap"></div>
+            
+            <!-- BOTÃO DE ÁUDIO -->
+            <div class="mt-4 flex gap-3">
+                <button onclick="falarTexto()" id="btnFalar"
+                    class="flex-1 bg-green-600 hover:bg-green-500 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2">
+                    🔊 Ouvir Dola
+                </button>
+                <button onclick="pararFala()" id="btnParar"
+                    class="bg-red-600 hover:bg-red-500 text-white font-semibold py-3 px-4 rounded-xl transition hidden">
+                    ⏹️
+                </button>
+            </div>
         </div>
     </div>
 
     <script>
+        let utteranceAtual = null;
+
         async function buscarNovel() {
             const query = document.getElementById('novelInput').value;
             if (!query) {
@@ -55,10 +69,14 @@ HTML_TEMPLATE = """
                 return;
             }
 
+            pararFala(); // Para qualquer áudio anterior
+
             const btn = document.getElementById('btnBuscar');
             const loading = document.getElementById('loading');
             const resultado = document.getElementById('resultado');
             const textoGerado = document.getElementById('textoGerado');
+            const btnParar = document.getElementById('btnParar');
+            btnParar.classList.add('hidden');
 
             btn.disabled = true;
             loading.classList.remove('hidden');
@@ -80,6 +98,41 @@ HTML_TEMPLATE = """
                 loading.classList.add('hidden');
             }
         }
+
+        function falarTexto() {
+            const texto = document.getElementById('textoGerado').innerText;
+            if (!texto) return;
+
+            pararFala();
+
+            utteranceAtual = new SpeechSynthesisUtterance(texto);
+            utteranceAtual.lang = 'pt-BR';
+            utteranceAtual.rate = 1.0; // Velocidade normal
+            utteranceAtual.pitch = 1.1; // Voz mais suave
+
+            // Tenta usar uma voz feminina em português
+            const vozes = window.speechSynthesis.getVoices();
+            const vozDola = vozes.find(v => v.lang === 'pt-BR' && v.name.includes('Feminina') || v.name.includes('Google')) || vozes.find(v => v.lang === 'pt-BR');
+            if (vozDola) utteranceAtual.voice = vozDola;
+
+            utteranceAtual.onstart = () => {
+                document.getElementById('btnParar').classList.remove('hidden');
+            };
+            utteranceAtual.onend = () => {
+                document.getElementById('btnParar').classList.add('hidden');
+            };
+
+            window.speechSynthesis.speak(utteranceAtual);
+        }
+
+        function pararFala() {
+            window.speechSynthesis.cancel();
+            utteranceAtual = null;
+            document.getElementById('btnParar').classList.add('hidden');
+        }
+
+        // Carrega as vozes quando o navegador estiver pronto
+        window.speechSynthesis.onvoiceschanged = () => {};
     </script>
 </body>
 </html>
@@ -101,9 +154,10 @@ def processar():
         model = genai.GenerativeModel("gemini-3.6-flash")
         
         prompt = (
-            f"Você é a Dola, especialista em novels, tradução e adaptação. "
+            f"Você é a Dola, especialista em novels, tradução e narração. "
             f"O usuário pediu: '{query}'. "
-            f"Faça um resumo envolvente e um trecho em português com tom de narração."
+            f"Faça um resumo envolvente e um trecho em português fluido, com tom de narração, "
+            f"curto e direto, ideal para leitura em voz."
         )
         
         resposta = model.generate_content(prompt)
