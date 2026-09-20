@@ -24,7 +24,6 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body class="min-h-screen">
-    <!-- CABEÇALHO -->
     <header class="bg-slate-900/90 backdrop-blur-md sticky top-0 z-50 border-b border-slate-800">
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <h1 class="text-2xl font-bold gradient-text">
@@ -42,15 +41,12 @@ HTML_TEMPLATE = """
             </div>
             <button class="md:hidden text-xl"><i class="fas fa-bars"></i></button>
         </div>
-        <!-- BANNER TELEGRAM -->
         <div class="bg-red-600 text-center py-2 text-sm font-medium">
             <a href="#" class="hover:underline"><i class="fab fa-telegram mr-1"></i> Participe do nosso grupo no Telegram!</a>
         </div>
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-6 space-y-10">
-
-        <!-- SEÇÃO DE BUSCA (MOBILE) -->
         <section class="md:hidden bg-slate-900 rounded-xl p-4 border border-slate-800">
             <input type="text" id="searchInputMobile" placeholder="Buscar novel ou capítulo..."
                 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -59,7 +55,6 @@ HTML_TEMPLATE = """
             </button>
         </section>
 
-        <!-- ESCOLHA DO EDITOR -->
         <section>
             <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
                 <i class="fas fa-star text-yellow-400"></i> Escolha do Editor
@@ -83,7 +78,6 @@ HTML_TEMPLATE = """
             </div>
         </section>
 
-        <!-- TENDÊNCIAS DA SEMANA -->
         <section>
             <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
                 <i class="fas fa-fire text-orange-500"></i> Tendências da Semana
@@ -116,7 +110,6 @@ HTML_TEMPLATE = """
             </div>
         </section>
 
-        <!-- RESULTADO DO PROCESSAMENTO -->
         <section id="resultadoSecao" class="hidden">
             <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-blue-400">
                 <i class="fas fa-sparkles"></i> Resultado
@@ -130,13 +123,11 @@ HTML_TEMPLATE = """
             </div>
         </section>
 
-        <!-- CARREGANDO -->
         <div id="loading" class="hidden text-center py-10">
             <div class="inline-block animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div>
             <p class="text-slate-400 mt-3">Processando capítulo e gerando áudio...</p>
         </div>
 
-        <!-- POPULARES HOJE -->
         <section>
             <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
                 <i class="fas fa-chart-line text-blue-400"></i> Popular Hoje
@@ -160,7 +151,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </section>
-
     </main>
 
     <script>
@@ -217,8 +207,8 @@ def processar():
         return jsonify({"resposta": "Nenhuma consulta foi enviada."}), 400
 
     try:
-        # ✅ MODELO CORRIGIDO — gemini-1.5-flash (não existe 3.6!)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # ✅ NOME DO MODELO CORRIGIDO — versão exata reconhecida pela API
+        model = genai.GenerativeModel("gemini-1.5-flash-001")
         
         prompt = (
             f"Você é um especialista em novels. O usuário pediu: '{query}'. "
