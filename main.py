@@ -4,7 +4,7 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# Configura a API do Google Gemini com a variável do Render
+# Configura a API do Google Gemini com a variável correta
 genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 
 # Front-end moderno completo (HTML, Tailwind CSS e JavaScript)
@@ -118,4 +118,4 @@ def processar():
         return jsonify({"resposta": f"Erro ao processar com o Gemini: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
