@@ -4,10 +4,10 @@ from openai import OpenAI
 
 app = Flask(__name__)
 
-# Configura a IA da OpenAI usando a chave que você salvou no Render
+# Configura a IA da OpenAI
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# Front-end moderno embutido (HTML/CSS/JS)
+# Front-end moderno
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -28,11 +28,10 @@ HTML_TEMPLATE = """
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-slate-300 mb-1">Nome da Novel ou Link (Central Novel / Google):</label>
+                <label class="block text-sm font-medium text-slate-300 mb-1">Nome da Novel ou Link:</label>
                 <input type="text" id="novelInput" placeholder="Ex: Shadow Slave - Capítulo 1" 
                     class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500">
             </div>
-
             <button onclick="buscarNovel()" id="btnBuscar"
                 class="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 rounded-xl shadow-lg hover:opacity-90 transition">
                 🚀 Buscar e Processar Capítulo
@@ -41,11 +40,11 @@ HTML_TEMPLATE = """
 
         <div id="loading" class="hidden text-center my-6">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-purple-500 border-t-transparent"></div>
-            <p class="text-slate-400 text-sm mt-2">Dola está buscando e traduzindo para você...</p>
+            <p class="text-slate-400 text-sm mt-2">Dola está buscando e traduzindo...</p>
         </div>
 
         <div id="resultado" class="mt-6 hidden">
-            <h2 class="text-lg font-bold text-purple-400 mb-2">Resultado / Resumo:</h2>
+            <h2 class="text-lg font-bold text-purple-400 mb-2">Resultado:</h2>
             <div id="textoGerado" class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-sm text-slate-300 max-h-60 overflow-y-auto"></div>
         </div>
     </div>
@@ -53,10 +52,7 @@ HTML_TEMPLATE = """
     <script>
         async function buscarNovel() {
             const query = document.getElementById('novelInput').value;
-            if (!query) {
-                alert('Digite o nome ou link da novel!');
-                return;
-            }
+            if (!query) { alert('Digite o nome ou link da novel!'); return; }
 
             const btn = document.getElementById('btnBuscar');
             const loading = document.getElementById('loading');
@@ -68,17 +64,16 @@ HTML_TEMPLATE = """
             resultado.classList.add('hidden');
 
             try {
-                const response = await fetch('/api/processar', {
+                const res = await fetch('/api/processar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query: query })
                 });
-                const data = await response.json();
-                
+                const data = await res.json();
                 textoGerado.innerText = data.resposta;
                 resultado.classList.remove('hidden');
-            } catch (error) {
-                alert('Oops, deu um errinho: ' + error);
+            } catch (err) {
+                alert('Erro: ' + err);
             } finally {
                 btn.disabled = false;
                 loading.classList.add('hidden');
@@ -97,17 +92,18 @@ def home():
 def processar():
     data = request.json
     query = data.get("query", "")
-    
+
     try:
-        # Usando a IA para gerar/simular a busca e adaptação do capítulo solicitado
-        response = client.chat.completions.create(
+        resposta = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Você é a Dola, uma assistente especializada em localizar, traduzir e estruturar capítulos de novels da Central Novel ou da internet de forma imersiva."},
-                {"role": "user", "content": f"O usuário quer a seguinte novel/capítulo: '{query}'. Simule a busca desse conteúdo, traga um trecho adaptado em português fluído e estruturado como se fosse um roteiro de áudio."}
+                {"role": "system", "content": "Você é a Dola, especialista em novels. Busca, resume e narra histórias em português."},
+                {"role": "user", "content": f"Capítulo/história: {query}. Apresente um resumo e trecho em português fluído, estilo narrativo."}
             ]
         )
-        resposta_ia = response.choices[0].message.content
+        return jsonify({"resposta": resposta.choices[0].message.content})
     except Exception as e:
-        resposta_ia = f"Erro ao processar com a OpenAI:
-            
+        return jsonify({"resposta": f"Erro: {str(e)}"}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
