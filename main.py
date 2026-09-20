@@ -4,10 +4,8 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# Configura a API do Google Gemini com a variável correta
 genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 
-# Front-end moderno completo (HTML, Tailwind CSS e JavaScript)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -73,7 +71,6 @@ HTML_TEMPLATE = """
                     body: JSON.stringify({ query: query })
                 });
                 const data = await response.json();
-                
                 textoGerado.innerText = data.resposta;
                 resultado.classList.remove('hidden');
             } catch (error) {
@@ -101,21 +98,19 @@ def processar():
         return jsonify({"resposta": "Nenhuma consulta foi enviada."}), 400
 
     try:
-        # Usando o modelo atualizado e rápido do Gemini
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-3.6-flash")
         
         prompt = (
-            f"Você é a Dola, especialista em novels, tradução e adaptação de conteúdos da internet. "
-            f"O usuário solicitou: '{query}'. "
-            f"Simule a busca desse capítulo, traga um resumo envolvente e um trecho traduzido e adaptado em português fluído, "
-            f"com um tom ideal para leitura ou narração em áudio."
+            f"Você é a Dola, especialista em novels, tradução e adaptação. "
+            f"O usuário pediu: '{query}'. "
+            f"Faça um resumo envolvente e um trecho em português com tom de narração."
         )
         
         resposta = model.generate_content(prompt)
         return jsonify({"resposta": resposta.text})
         
     except Exception as e:
-        return jsonify({"resposta": f"Erro ao processar com o Gemini: {str(e)}"}), 500
+        return jsonify({"resposta": f"Erro: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
