@@ -207,8 +207,8 @@ def processar():
         return jsonify({"resposta": "Nenhuma consulta foi enviada."}), 400
 
     try:
-        # ✅ MODELO ATUALIZADO — Gemini 2.5 Flash (substituto oficial e ativo!)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        # ✅ Modelo oficial recomendado pelo Google no erro!
+        model = genai.GenerativeModel("gemini-3.6-flash")
         
         prompt = (
             f"Você é um especialista em novels. O usuário pediu: '{query}'. "
