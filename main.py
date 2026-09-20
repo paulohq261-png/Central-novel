@@ -2,13 +2,12 @@ from flask import Flask, render_template_string, request, jsonify, send_file
 import os
 import google.generativeai as genai
 from gtts import gTTS
+import io
 
 app = Flask(__name__)
 
-# Configura a API do Google Gemini
 genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 
-# Front-end limpo, profissional e sem nomes da assistente
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -47,11 +46,9 @@ HTML_TEMPLATE = """
         <div id="resultado" class="mt-6 hidden space-y-4">
             <h2 class="text-lg font-bold text-blue-400">Resultado:</h2>
             <div id="textoGerado" class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-sm text-slate-300 max-h-60 overflow-y-auto whitespace-pre-wrap"></div>
-            
-            <!-- PLAYER DE ÁUDIO -->
             <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center">
                 <p class="text-xs text-slate-400 mb-2">Ouça a narração:</p>
-                <audio id="audioPlayer" controls class="w-full"></audio>
+                <audio id="audioPlayer" controls class="w-full">
             </div>
         </div>
     </div>
@@ -81,7 +78,6 @@ HTML_TEMPLATE = """
                     body: JSON.stringify({ query: query })
                 });
                 const data = await response.json();
-                
                 textoGerado.innerText = data.resposta;
                 audioPlayer.src = '/api/audio?t=' + new Date().getTime();
                 resultado.classList.remove('hidden');
@@ -97,12 +93,15 @@ HTML_TEMPLATE = """
 </html>
 """
 
+texto_atual = ""
+
 @app.route("/")
 def home():
     return render_template_string(HTML_TEMPLATE)
 
 @app.route("/api/processar", methods=["POST"])
 def processar():
+    global texto_atual
     data = request.json
     query = data.get("query", "")
     
@@ -111,6 +110,27 @@ def processar():
 
     try:
         model = genai.GenerativeModel("gemini-3.6-flash")
-        
         prompt = (
-            f"Traduza, adapte e resuma o seguinte conteúdo de novel para o português de forma fluída, "
+            f"Você é um especialista em novels. O usuário pediu: '{query}'. "
+            f"Faça um resumo envolvente e um trecho em português fluido, com tom de narração, curto e direto."
+        )
+        resposta = model.generate_content(prompt)
+        texto_atual = resposta.text
+        return jsonify({"resposta": texto_atual})
+    except Exception as e:
+        return jsonify({"resposta": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/audio")
+def gerar_audio():
+    global texto_atual
+    if not texto_atual:
+        return "Sem texto", 404
+    
+    tts = gTTS(text=texto_atual, lang='pt', slow=False)
+    fp = io.BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return send_file(fp, mimetype="audio/mpeg", download_name="narracao.mp3")
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
