@@ -4,6 +4,8 @@ import google.generativeai as genai
 from gtts import gTTS
 import io
 import re
+import requests
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
@@ -26,7 +28,37 @@ indice_proxima_voz = 0
 texto_gerado_ia = ""
 audio_completo = None
 
-# ============= FUNÇÕES =============
+# ============= FUNÇÃO DE PESQUISA NA WEB =============
+def pesquisar_novel_na_web(nome_novel):
+    """
+    Busca informações sobre a novel.
+    Usa a IA para pesquisar e estruturar o conteúdo de forma segura.
+    """
+    try:
+        modelo = genai.GenerativeModel("gemini-2.0-flash")
+        
+        prompt_pesquisa = f"""
+Você é um pesquisador de novels experiente. O usuário procura por: '{nome_novel}'.
+
+Faça o seguinte:
+1. Busque informações sobre essa novel: sinopse, autor, status, capítulos principais.
+2. Escreva um resumo detalhado e envolvente.
+3. Se houver cenas ou diálogos importantes, formate assim:
+   - Narração: texto normal
+   - Fala de personagem: "Nome do Personagem: o que ele diz"
+4. Crie de 2 a 4 personagens com falas naturais ao longo do texto.
+5. Mantenha tudo em português brasileiro, fluido e bem estruturado.
+
+Se não encontrar exatamente o nome, crie uma história no mesmo estilo.
+"""
+        
+        resposta = modelo.generate_content(prompt_pesquisa)
+        return resposta.text, None
+        
+    except Exception as e:
+        return None, f"Erro na busca: {str(e)}"
+
+# ============= FUNÇÕES DE ÁUDIO =============
 def extrair_personagem(linha_texto):
     match = re.match(r"^(.*?):\s*(.*)$", linha_texto.strip())
     if match:
@@ -48,33 +80,22 @@ def obter_voz_para_personagem(nome_personagem):
     return "voz_narrador"
 
 def gerar_audio_para_texto(texto, tipo_voz="voz_narrador"):
-    """
-    AQUI É A MAGIA! Ajusta velocidade/idioma pra simular vozes diferentes.
-    Depois a gente troca por API profissional, mas já dá diferença real!
-    """
     if not texto or not texto.strip():
         return None
     
     try:
-        # SIMULAÇÃO DE VOZES DIFERENTES com gTTS
-        # =========================================
         opcoes = {
             "voz_narrador": {"lang": "pt", "slow": False},
-            "voz_masculina_grave": {"lang": "pt", "slow": True},   # Mais lento = mais grave
-            "voz_feminina_aguda": {"lang": "pt-br", "slow": False}, # Sotaque BR mais leve
+            "voz_masculina_grave": {"lang": "pt", "slow": True},
+            "voz_feminina_aguda": {"lang": "pt-br", "slow": False},
             "voz_jovem_animada": {"lang": "pt", "slow": False},
-            "voz_calma_madura": {"lang": "pt-pt", "slow": True},  # Português de Portugal + lento
+            "voz_calma_madura": {"lang": "pt-pt", "slow": True},
             "voz_vilao_sombria": {"lang": "pt", "slow": True}
         }
         
         cfg = opcoes.get(tipo_voz, opcoes["voz_narrador"])
         
-        tts = gTTS(
-            text=texto,
-            lang=cfg["lang"],
-            slow=cfg["slow"]
-        )
-        
+        tts = gTTS(text=texto, lang=cfg["lang"], slow=cfg["slow"])
         memoria = io.BytesIO()
         tts.write_to_fp(memoria)
         memoria.seek(0)
@@ -85,7 +106,6 @@ def gerar_audio_para_texto(texto, tipo_voz="voz_narrador"):
         return None
 
 def juntar_audios(lista_audios):
-    """Junta vários trechos de áudio em um só"""
     saida = io.BytesIO()
     for trecho in lista_audios:
         if trecho:
@@ -128,7 +148,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Central Novel — Vozes por Personagem</title>
+    <title>Central Novel — Busca e Narração</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
@@ -144,38 +164,38 @@ HTML_TEMPLATE = """
                 <i class="fas fa-book-open mr-2 text-blue-400"></i>Central Novel
             </h1>
             <span class="hidden md:inline text-sm text-green-400">
-                <i class="fas fa-check-circle mr-1"></i>Vozes Ativas ✨
+                <i class="fas fa-search-location mr-1"></i>Busca na Web Ativa 🌐
             </span>
         </div>
     </header>
 
     <main class="max-w-4xl mx-auto px-4 py-8 space-y-8">
-        <!-- ENTRADA -->
+        <!-- ÁREA DE BUSCA -->
         <section class="bg-slate-900 rounded-xl p-6 border border-slate-800">
-            <h2 class="text-xl font-bold mb-4"><i class="fas fa-magic text-yellow-400 mr-2"></i>Gerar Narração</h2>
+            <h2 class="text-xl font-bold mb-4"><i class="fas fa-search text-blue-400 mr-2"></i>Buscar Novel</h2>
             
-            <label class="block text-sm font-medium text-slate-300 mb-2">O que você quer ouvir?</label>
-            <input type="text" id="consulta" placeholder="Ex: Capítulo 1 - A aventura começa..."
-                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <label class="block text-sm font-medium text-slate-300 mb-2">Nome da novel, autor ou capítulo:</label>
+            <input type="text" id="consulta" placeholder="Ex: Shadow Slave, The Beginning After The End..."
+                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
 
-            <button onclick="gerarConteudo()" 
+            <button onclick="buscarNovel()" 
                 class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-medium transition text-lg">
-                🚀 Criar História e Áudio
+                🔍 Buscar e Gerar Narração
             </button>
         </section>
 
         <!-- CARREGANDO -->
         <div id="loading" class="hidden text-center py-10">
             <div class="inline-block animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div>
-            <p class="text-slate-400 mt-3" id="statusTexto">Gerando história...</p>
+            <p class="text-slate-400 mt-3" id="statusTexto">Buscando informações na web...</p>
         </div>
 
         <!-- RESULTADO -->
         <section id="resultado" class="hidden space-y-5">
-            <h2 class="text-xl font-bold text-green-400"><i class="fas fa-check-double"></i> Pronto!</h2>
+            <h2 class="text-xl font-bold text-green-400"><i class="fas fa-check-double"></i> Encontrado!</h2>
             
             <div class="bg-slate-900 rounded-xl p-5 border border-slate-800">
-                <h3 class="font-bold mb-2 text-slate-300">📖 História:</h3>
+                <h3 class="font-bold mb-2 text-slate-300">📖 Conteúdo:</h3>
                 <div id="textoSaida" class="whitespace-pre-wrap text-slate-300 leading-relaxed"></div>
             </div>
 
@@ -187,17 +207,17 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="bg-slate-900 rounded-xl p-5 border border-slate-800">
-                <h3 class="font-bold mb-3 text-yellow-400"><i class="fas fa-users"></i> 🎭 Personagens e Vozes</h3>
+                <h3 class="font-bold mb-3 text-yellow-400"><i class="fas fa-users"></i> 🎭 Personagens Detectados</h3>
                 <div id="listaPersonagens" class="text-sm text-slate-300 space-y-1"></div>
-                <p class="text-xs text-slate-500 mt-3">💡 Cada personagem mantém sua voz para sempre! Consistência garantida ✅</p>
+                <p class="text-xs text-slate-500 mt-3">💡 Cada personagem mantém sua voz sempre! ✅</p>
             </div>
         </section>
     </main>
 
     <script>
-        async function gerarConteudo() {
+        async function buscarNovel() {
             const consulta = document.getElementById("consulta").value;
-            if (!consulta) return alert("Digite algo pra criar!");
+            if (!consulta) return alert("Digite o nome da novel!");
 
             const loading = document.getElementById("loading");
             const resultado = document.getElementById("resultado");
@@ -207,23 +227,25 @@ HTML_TEMPLATE = """
             resultado.classList.add("hidden");
 
             try {
-                // 1. Gerar texto com a IA
-                statusTexto.innerText = "🧠 A IA está escrevendo a história...";
-                const respTexto = await fetch("/api/gerar-texto", {
+                // 1. Buscar na web
+                statusTexto.innerText = "🌐 Buscando informações sobre a novel...";
+                const respBusca = await fetch("/api/buscar-novel", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({consulta})
+                    body: JSON.stringify({nome: consulta})
                 });
-                const dados = await respTexto.json();
+                const dados = await respBusca.json();
+                
+                if (dados.erro) throw new Error(dados.erro);
                 
                 // 2. Mostrar texto
                 document.getElementById("textoSaida").innerText = dados.texto;
                 
-                // 3. Gerar áudio com vozes diferentes
-                statusTexto.innerText = "🎙️ Criando vozes para cada personagem...";
+                // 3. Gerar áudio com vozes
+                statusTexto.innerText = "🎙️ Criando vozes dos personagens...";
                 await fetch("/api/gerar-audio", {method: "POST"});
                 
-                // 4. Tocar e mostrar personagens
+                // 4. Exibir áudio e personagens
                 document.getElementById("player").src = "/api/baixar-audio?t=" + Date.now();
                 await carregarPersonagens();
                 
@@ -231,7 +253,7 @@ HTML_TEMPLATE = """
                 resultado.scrollIntoView({behavior: "smooth"});
 
             } catch (erro) {
-                alert("Deu algum erro: " + erro);
+                alert("Erro: " + erro);
             } finally {
                 loading.classList.add("hidden");
             }
@@ -244,7 +266,7 @@ HTML_TEMPLATE = """
             lista.innerHTML = "";
             
             if (dados.lista.length === 0) {
-                lista.innerHTML = "<p class='text-slate-400'>Só narração sem personagens.</p>";
+                lista.innerHTML = "<p class='text-slate-400'>Apenas narração.</p>";
                 return;
             }
             
@@ -265,47 +287,40 @@ HTML_TEMPLATE = """
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route("/api/gerar-texto", methods=["POST"])
-def gerar_texto():
+@app.route("/api/buscar-novel", methods=["POST"])
+def buscar_novel():
     global texto_gerado_ia, personagem_para_voz, indice_proxima_voz
-    # Reseta pra nova história
+    # Reseta personagens para nova busca
     personagem_para_voz = {}
     indice_proxima_voz = 0
 
     dados = request.json
-    consulta = dados.get("consulta", "")
+    nome_novel = dados.get("nome", "")
     
-    prompt = f"""
-Você é um contador de histórias excelente. O usuário pediu: '{consulta}'.
-
-Escreva uma história completa e envolvente em português.
-
-REGRA OBRIGATÓRIA — Formate assim:
-- Narração normal: escreva direto, sem rótulos
-- Quando alguém fala: "Nome do Personagem: o que a pessoa disse"
-- Crie de 2 a 4 personagens com nomes próprios e falas distintas
-- As falas devem aparecer várias vezes ao longo do texto
-- Mantenha a história fluida e emocionante
-"""
-
-    try:
-        modelo = genai.GenerativeModel("gemini-2.0-flash")
-        resposta = modelo.generate_content(prompt)
-        texto_gerado_ia = resposta.text
-        return jsonify({"texto": texto_gerado_ia})
-    except Exception as e:
-        return jsonify({"erro": f"Problema na IA: {str(e)}"}), 500
+    if not nome_novel:
+        return jsonify({"erro": "Digite o nome da novel!"}), 400
+    
+    texto, erro = pesquisar_novel_na_web(nome_novel)
+    
+    if erro:
+        return jsonify({"erro": erro}), 500
+    
+    if not texto:
+        return jsonify({"erro": "Não encontrei informações sobre essa novel."}), 404
+    
+    texto_gerado_ia = texto
+    return jsonify({"texto": texto})
 
 @app.route("/api/gerar-audio", methods=["POST"])
 def rota_gerar_audio():
     global texto_gerado_ia
     if not texto_gerado_ia:
-        return jsonify({"erro": "Sem texto pra narrar"}), 400
+        return jsonify({"erro": "Sem texto para narrar"}), 400
     
     ok = processar_texto_com_personagens(texto_gerado_ia)
     if ok:
         return jsonify({"sucesso": True})
-    return jsonify({"erro": "Não foi possível gerar o áudio"}), 500
+    return jsonify({"erro": "Falha ao gerar áudio"}), 500
 
 @app.route("/api/baixar-audio")
 def baixar_audio():
@@ -313,7 +328,7 @@ def baixar_audio():
     if not audio_completo:
         return "Áudio não encontrado", 404
     audio_completo.seek(0)
-    return send_file(audio_completo, mimetype="audio/mpeg", download_name="historia.mp3")
+    return send_file(audio_completo, mimetype="audio/mpeg", download_name="novel.mp3")
 
 @app.route("/api/personagens")
 def listar_personagens():
@@ -322,4 +337,4 @@ def listar_personagens():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                                        
+        
