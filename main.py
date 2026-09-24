@@ -30,12 +30,8 @@ audio_completo = None
 
 # ============= FUNÇÃO DE PESQUISA NA WEB =============
 def pesquisar_novel_na_web(nome_novel):
-    """
-    Busca informações sobre a novel.
-    Usa a IA para pesquisar e estruturar o conteúdo de forma segura.
-    """
     try:
-        modelo = genai.GenerativeModel("gemini-2.0-flash")
+        modelo = genai.GenerativeModel("gemini-3.6-flash")
         
         prompt_pesquisa = f"""
 Você é um pesquisador de novels experiente. O usuário procura por: '{nome_novel}'.
@@ -227,7 +223,6 @@ HTML_TEMPLATE = """
             resultado.classList.add("hidden");
 
             try {
-                // 1. Buscar na web
                 statusTexto.innerText = "🌐 Buscando informações sobre a novel...";
                 const respBusca = await fetch("/api/buscar-novel", {
                     method: "POST",
@@ -238,14 +233,11 @@ HTML_TEMPLATE = """
                 
                 if (dados.erro) throw new Error(dados.erro);
                 
-                // 2. Mostrar texto
                 document.getElementById("textoSaida").innerText = dados.texto;
                 
-                // 3. Gerar áudio com vozes
                 statusTexto.innerText = "🎙️ Criando vozes dos personagens...";
                 await fetch("/api/gerar-audio", {method: "POST"});
                 
-                // 4. Exibir áudio e personagens
                 document.getElementById("player").src = "/api/baixar-audio?t=" + Date.now();
                 await carregarPersonagens();
                 
@@ -290,7 +282,6 @@ def home():
 @app.route("/api/buscar-novel", methods=["POST"])
 def buscar_novel():
     global texto_gerado_ia, personagem_para_voz, indice_proxima_voz
-    # Reseta personagens para nova busca
     personagem_para_voz = {}
     indice_proxima_voz = 0
 
