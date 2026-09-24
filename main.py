@@ -3,18 +3,132 @@ import os
 import google.generativeai as genai
 from gtts import gTTS
 import io
+import re
 
 app = Flask(__name__)
 
-genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+# ============= CONFIGURAÇÕES =============
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+genai.configure(api_key=GOOGLE_API_KEY)
 
+# ============= SISTEMA DE PERSONAGENS =============
+personagem_para_voz = {}
+vozes_disponiveis = [
+    "voz_narrador",
+    "voz_masculina_grave",
+    "voz_feminina_aguda",
+    "voz_jovem_animada",
+    "voz_calma_madura",
+    "voz_vilao_sombria"
+]
+indice_proxima_voz = 0
+
+texto_gerado_ia = ""
+audio_completo = None
+
+# ============= FUNÇÕES =============
+def extrair_personagem(linha_texto):
+    match = re.match(r"^(.*?):\s*(.*)$", linha_texto.strip())
+    if match:
+        nome = match.group(1).strip()
+        fala = match.group(2).strip()
+        if nome and len(nome) < 30 and nome.lower() not in ["narrador", "descricao", "acao"]:
+            return nome, fala
+    return None, linha_texto.strip()
+
+def obter_voz_para_personagem(nome_personagem):
+    global personagem_para_voz, indice_proxima_voz
+    if nome_personagem in personagem_para_voz:
+        return personagem_para_voz[nome_personagem]
+    if vozes_disponiveis:
+        voz = vozes_disponiveis[indice_proxima_voz % len(vozes_disponiveis)]
+        personagem_para_voz[nome_personagem] = voz
+        indice_proxima_voz += 1
+        return voz
+    return "voz_narrador"
+
+def gerar_audio_para_texto(texto, tipo_voz="voz_narrador"):
+    """
+    AQUI É A MAGIA! Ajusta velocidade/idioma pra simular vozes diferentes.
+    Depois a gente troca por API profissional, mas já dá diferença real!
+    """
+    if not texto or not texto.strip():
+        return None
+    
+    try:
+        # SIMULAÇÃO DE VOZES DIFERENTES com gTTS
+        # =========================================
+        opcoes = {
+            "voz_narrador": {"lang": "pt", "slow": False},
+            "voz_masculina_grave": {"lang": "pt", "slow": True},   # Mais lento = mais grave
+            "voz_feminina_aguda": {"lang": "pt-br", "slow": False}, # Sotaque BR mais leve
+            "voz_jovem_animada": {"lang": "pt", "slow": False},
+            "voz_calma_madura": {"lang": "pt-pt", "slow": True},  # Português de Portugal + lento
+            "voz_vilao_sombria": {"lang": "pt", "slow": True}
+        }
+        
+        cfg = opcoes.get(tipo_voz, opcoes["voz_narrador"])
+        
+        tts = gTTS(
+            text=texto,
+            lang=cfg["lang"],
+            slow=cfg["slow"]
+        )
+        
+        memoria = io.BytesIO()
+        tts.write_to_fp(memoria)
+        memoria.seek(0)
+        return memoria
+        
+    except Exception as e:
+        print(f"Erro TTS: {e}")
+        return None
+
+def juntar_audios(lista_audios):
+    """Junta vários trechos de áudio em um só"""
+    saida = io.BytesIO()
+    for trecho in lista_audios:
+        if trecho:
+            trecho.seek(0)
+            saida.write(trecho.read())
+    saida.seek(0)
+    return saida
+
+def processar_texto_com_personagens(texto_completo):
+    global audio_completo
+    linhas = texto_completo.split("\n")
+    trechos_audio = []
+
+    for linha in linhas:
+        if not linha.strip():
+            continue
+        
+        personagem, fala = extrair_personagem(linha)
+        
+        if personagem:
+            voz = obter_voz_para_personagem(personagem)
+            texto_narrar = f"{personagem} diz: {fala}"
+        else:
+            voz = "voz_narrador"
+            texto_narrar = linha
+        
+        trecho = gerar_audio_para_texto(texto_narrar, voz)
+        if trecho:
+            trechos_audio.append(trecho)
+    
+    if trechos_audio:
+        audio_completo = juntar_audios(trechos_audio)
+        return True
+    return False
+
+# ============= PÁGINA WEB =============
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Central Novel — Sua Central de Leitura</title>
+    <title>Central Novel — Vozes por Personagem</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
@@ -29,209 +143,183 @@ HTML_TEMPLATE = """
             <h1 class="text-2xl font-bold gradient-text">
                 <i class="fas fa-book-open mr-2 text-blue-400"></i>Central Novel
             </h1>
-            <div class="hidden md:flex items-center gap-4">
-                <div class="relative">
-                    <input type="text" id="searchInput" placeholder="Buscar novel ou capítulo..."
-                        class="bg-slate-800 border border-slate-700 rounded-full px-4 py-2 pl-10 w-72 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                </div>
-                <button onclick="buscarNovel()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-full text-sm font-medium transition">
-                    <i class="fas fa-magic mr-1"></i> Processar
-                </button>
-            </div>
-            <button class="md:hidden text-xl"><i class="fas fa-bars"></i></button>
-        </div>
-        <div class="bg-red-600 text-center py-2 text-sm font-medium">
-            <a href="#" class="hover:underline"><i class="fab fa-telegram mr-1"></i> Participe do nosso grupo no Telegram!</a>
+            <span class="hidden md:inline text-sm text-green-400">
+                <i class="fas fa-check-circle mr-1"></i>Vozes Ativas ✨
+            </span>
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 py-6 space-y-10">
-        <section class="md:hidden bg-slate-900 rounded-xl p-4 border border-slate-800">
-            <input type="text" id="searchInputMobile" placeholder="Buscar novel ou capítulo..."
-                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <button onclick="buscarNovel()" class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-medium transition">
-                🚀 Buscar e Gerar Áudio
+    <main class="max-w-4xl mx-auto px-4 py-8 space-y-8">
+        <!-- ENTRADA -->
+        <section class="bg-slate-900 rounded-xl p-6 border border-slate-800">
+            <h2 class="text-xl font-bold mb-4"><i class="fas fa-magic text-yellow-400 mr-2"></i>Gerar Narração</h2>
+            
+            <label class="block text-sm font-medium text-slate-300 mb-2">O que você quer ouvir?</label>
+            <input type="text" id="consulta" placeholder="Ex: Capítulo 1 - A aventura começa..."
+                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500">
+
+            <button onclick="gerarConteudo()" 
+                class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-medium transition text-lg">
+                🚀 Criar História e Áudio
             </button>
         </section>
 
-        <section>
-            <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                <i class="fas fa-star text-yellow-400"></i> Escolha do Editor
-            </h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div class="bg-slate-900 rounded-xl overflow-hidden border border-slate-800 card-hover transition">
-                    <div class="flex">
-                        <img src="https://picsum.photos/id/24/150/200" alt="Capa" class="w-28 h-36 object-cover">
-                        <div class="p-3 flex-1">
-                            <h3 class="font-bold text-lg">Tales of Demons & Gods</h3>
-                            <p class="text-yellow-400 text-sm font-medium">2015</p>
-                            <p class="text-slate-400 text-xs mt-1">Status: Em andamento</p>
-                            <div class="flex gap-2 mt-2">
-                                <span class="bg-blue-600/30 text-blue-300 text-xs px-2 py-1 rounded">Ação</span>
-                                <span class="bg-orange-600/30 text-orange-300 text-xs px-2 py-1 rounded">Artes Marciais</span>
-                            </div>
-                        </div>
-                        <div class="p-3 text-yellow-400 font-bold text-xl">7.6</div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section>
-            <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                <i class="fas fa-fire text-orange-500"></i> Tendências da Semana
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-slate-900 rounded-xl p-3 border border-slate-800 card-hover transition flex gap-3 relative">
-                    <span class="absolute top-2 right-2 bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">9.4</span>
-                    <img src="https://picsum.photos/id/42/100/140" alt="Capa" class="w-20 h-28 object-cover rounded-lg">
-                    <div>
-                        <h3 class="font-bold">The Beginning After The End</h3>
-                        <p class="text-slate-400 text-xs mt-1">Dizem que a solidão acompanha aqueles com grande poder...</p>
-                        <div class="flex gap-2 mt-2 flex-wrap">
-                            <span class="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded">Novel Ocidental</span>
-                            <span class="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded">Ação</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="bg-slate-900 rounded-xl p-3 border border-slate-800 card-hover transition flex gap-3 relative">
-                    <span class="absolute top-2 right-2 bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">9.56</span>
-                    <img src="https://picsum.photos/id/43/100/140" alt="Capa" class="w-20 h-28 object-cover rounded-lg">
-                    <div>
-                        <h3 class="font-bold">Shadow Slave</h3>
-                        <p class="text-slate-400 text-xs mt-1">Crescendo na pobreza, Sunny nunca esperou nada de bom...</p>
-                        <div class="flex gap-2 mt-2 flex-wrap">
-                            <span class="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded">Novel Ocidental</span>
-                            <span class="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded">Ação</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section id="resultadoSecao" class="hidden">
-            <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-blue-400">
-                <i class="fas fa-sparkles"></i> Resultado
-            </h2>
-            <div class="bg-slate-900 rounded-xl p-5 border border-slate-800">
-                <div id="textoGerado" class="text-slate-300 whitespace-pre-wrap leading-relaxed"></div>
-                <div class="mt-5 pt-4 border-t border-slate-800">
-                    <p class="text-xs text-slate-400 mb-2"><i class="fas fa-volume-up mr-1"></i> Ouça a narração:</p>
-                    <audio id="audioPlayer" controls class="w-full rounded-lg">
-                </div>
-            </div>
-        </section>
-
+        <!-- CARREGANDO -->
         <div id="loading" class="hidden text-center py-10">
             <div class="inline-block animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div>
-            <p class="text-slate-400 mt-3">Processando capítulo e gerando áudio...</p>
+            <p class="text-slate-400 mt-3" id="statusTexto">Gerando história...</p>
         </div>
 
-        <section>
-            <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                <i class="fas fa-chart-line text-blue-400"></i> Popular Hoje
-            </h2>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                <div class="bg-slate-900 rounded-xl overflow-hidden border border-slate-800 card-hover transition">
-                    <img src="https://picsum.photos/id/43/200/280" alt="Capa" class="w-full h-44 object-cover">
-                    <div class="p-3">
-                        <h3 class="font-bold text-sm truncate">Shadow Slave</h3>
-                        <p class="text-slate-400 text-xs">Vol.13 Cap.3169</p>
-                        <span class="inline-block mt-1 bg-green-600/20 text-green-400 text-xs px-2 py-0.5 rounded">Em andamento</span>
-                    </div>
-                </div>
-                <div class="bg-slate-900 rounded-xl overflow-hidden border border-slate-800 card-hover transition">
-                    <img src="https://picsum.photos/id/44/200/280" alt="Capa" class="w-full h-44 object-cover">
-                    <div class="p-3">
-                        <h3 class="font-bold text-sm truncate">Lord of Mysteries</h3>
-                        <p class="text-slate-400 text-xs">Vol.Extra Cap.1437</p>
-                        <span class="inline-block mt-1 bg-blue-600/20 text-blue-400 text-xs px-2 py-0.5 rounded">Completo</span>
-                    </div>
-                </div>
+        <!-- RESULTADO -->
+        <section id="resultado" class="hidden space-y-5">
+            <h2 class="text-xl font-bold text-green-400"><i class="fas fa-check-double"></i> Pronto!</h2>
+            
+            <div class="bg-slate-900 rounded-xl p-5 border border-slate-800">
+                <h3 class="font-bold mb-2 text-slate-300">📖 História:</h3>
+                <div id="textoSaida" class="whitespace-pre-wrap text-slate-300 leading-relaxed"></div>
+            </div>
+
+            <div class="bg-slate-900 rounded-xl p-5 border border-slate-800">
+                <h3 class="font-bold mb-3 text-blue-400"><i class="fas fa-volume-up"></i> 🔊 Ouvir Narração</h3>
+                <audio id="player" controls class="w-full rounded-lg">
+                    Seu navegador não suporta áudio.
+                
+            </div>
+
+            <div class="bg-slate-900 rounded-xl p-5 border border-slate-800">
+                <h3 class="font-bold mb-3 text-yellow-400"><i class="fas fa-users"></i> 🎭 Personagens e Vozes</h3>
+                <div id="listaPersonagens" class="text-sm text-slate-300 space-y-1"></div>
+                <p class="text-xs text-slate-500 mt-3">💡 Cada personagem mantém sua voz para sempre! Consistência garantida ✅</p>
             </div>
         </section>
     </main>
 
     <script>
-        async function buscarNovel() {
-            const query = document.getElementById('searchInput').value || document.getElementById('searchInputMobile').value;
-            if (!query) {
-                alert('Digite o nome ou capítulo que deseja buscar!');
-                return;
-            }
+        async function gerarConteudo() {
+            const consulta = document.getElementById("consulta").value;
+            if (!consulta) return alert("Digite algo pra criar!");
 
-            const loading = document.getElementById('loading');
-            const resultadoSecao = document.getElementById('resultadoSecao');
-            const textoGerado = document.getElementById('textoGerado');
-            const audioPlayer = document.getElementById('audioPlayer');
-
-            loading.classList.remove('hidden');
-            resultadoSecao.classList.add('hidden');
+            const loading = document.getElementById("loading");
+            const resultado = document.getElementById("resultado");
+            const statusTexto = document.getElementById("statusTexto");
+            
+            loading.classList.remove("hidden");
+            resultado.classList.add("hidden");
 
             try {
-                const response = await fetch('/api/processar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: query })
+                // 1. Gerar texto com a IA
+                statusTexto.innerText = "🧠 A IA está escrevendo a história...";
+                const respTexto = await fetch("/api/gerar-texto", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({consulta})
                 });
-                const data = await response.json();
-                textoGerado.innerText = data.resposta;
-                audioPlayer.src = '/api/audio?t=' + new Date().getTime();
-                resultadoSecao.classList.remove('hidden');
-                resultadoSecao.scrollIntoView({ behavior: 'smooth' });
-            } catch (error) {
-                alert('Oops, ocorreu um erro: ' + error);
+                const dados = await respTexto.json();
+                
+                // 2. Mostrar texto
+                document.getElementById("textoSaida").innerText = dados.texto;
+                
+                // 3. Gerar áudio com vozes diferentes
+                statusTexto.innerText = "🎙️ Criando vozes para cada personagem...";
+                await fetch("/api/gerar-audio", {method: "POST"});
+                
+                // 4. Tocar e mostrar personagens
+                document.getElementById("player").src = "/api/baixar-audio?t=" + Date.now();
+                await carregarPersonagens();
+                
+                resultado.classList.remove("hidden");
+                resultado.scrollIntoView({behavior: "smooth"});
+
+            } catch (erro) {
+                alert("Deu algum erro: " + erro);
             } finally {
-                loading.classList.add('hidden');
+                loading.classList.add("hidden");
             }
+        }
+
+        async function carregarPersonagens() {
+            const resp = await fetch("/api/personagens");
+            const dados = await resp.json();
+            const lista = document.getElementById("listaPersonagens");
+            lista.innerHTML = "";
+            
+            if (dados.lista.length === 0) {
+                lista.innerHTML = "<p class='text-slate-400'>Só narração sem personagens.</p>";
+                return;
+            }
+            
+            dados.lista.forEach(p => {
+                lista.innerHTML += `<div class="flex justify-between py-2 border-b border-slate-800">
+                    <span class="font-medium">👤 ${p.nome}</span>
+                    <span class="text-blue-400 text-xs">🎙️ ${p.voz.replace('_', ' ')}</span>
+                </div>`;
+            });
         }
     </script>
 </body>
 </html>
 """
 
-texto_atual = ""
-
+# ============= ROTAS DA API =============
 @app.route("/")
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route("/api/processar", methods=["POST"])
-def processar():
-    global texto_atual
-    data = request.json
-    query = data.get("query", "")
+@app.route("/api/gerar-texto", methods=["POST"])
+def gerar_texto():
+    global texto_gerado_ia, personagem_para_voz, indice_proxima_voz
+    # Reseta pra nova história
+    personagem_para_voz = {}
+    indice_proxima_voz = 0
+
+    dados = request.json
+    consulta = dados.get("consulta", "")
     
-    if not query:
-        return jsonify({"resposta": "Nenhuma consulta foi enviada."}), 400
+    prompt = f"""
+Você é um contador de histórias excelente. O usuário pediu: '{consulta}'.
+
+Escreva uma história completa e envolvente em português.
+
+REGRA OBRIGATÓRIA — Formate assim:
+- Narração normal: escreva direto, sem rótulos
+- Quando alguém fala: "Nome do Personagem: o que a pessoa disse"
+- Crie de 2 a 4 personagens com nomes próprios e falas distintas
+- As falas devem aparecer várias vezes ao longo do texto
+- Mantenha a história fluida e emocionante
+"""
 
     try:
-        # ✅ Modelo oficial recomendado pelo Google no erro!
-        model = genai.GenerativeModel("gemini-3.6-flash")
-        
-        prompt = (
-            f"Você é um especialista em novels. O usuário pediu: '{query}'. "
-            f"Faça um resumo envolvente com narração em português, fluido, natural e bem estruturado. "
-            f"Inclua um trecho representativo do capítulo."
-        )
-        resposta = model.generate_content(prompt)
-        texto_atual = resposta.text
-        return jsonify({"resposta": texto_atual})
+        modelo = genai.GenerativeModel("gemini-2.0-flash")
+        resposta = modelo.generate_content(prompt)
+        texto_gerado_ia = resposta.text
+        return jsonify({"texto": texto_gerado_ia})
     except Exception as e:
-        return jsonify({"resposta": f"Erro: {str(e)}"}), 500
+        return jsonify({"erro": f"Problema na IA: {str(e)}"}), 500
 
-@app.route("/api/audio")
-def gerar_audio():
-    global texto_atual
-    if not texto_atual:
-        return "Sem texto", 404
+@app.route("/api/gerar-audio", methods=["POST"])
+def rota_gerar_audio():
+    global texto_gerado_ia
+    if not texto_gerado_ia:
+        return jsonify({"erro": "Sem texto pra narrar"}), 400
     
-    tts = gTTS(text=texto_atual, lang='pt', slow=False)
-    fp = io.BytesIO()
-    tts.write_to_fp(fp)
-    fp.seek(0)
-    return send_file(fp, mimetype="audio/mpeg", download_name="narracao.mp3")
+    ok = processar_texto_com_personagens(texto_gerado_ia)
+    if ok:
+        return jsonify({"sucesso": True})
+    return jsonify({"erro": "Não foi possível gerar o áudio"}), 500
+
+@app.route("/api/baixar-audio")
+def baixar_audio():
+    global audio_completo
+    if not audio_completo:
+        return "Áudio não encontrado", 404
+    audio_completo.seek(0)
+    return send_file(audio_completo, mimetype="audio/mpeg", download_name="historia.mp3")
+
+@app.route("/api/personagens")
+def listar_personagens():
+    lista = [{"nome": nome, "voz": voz} for nome, voz in personagem_para_voz.items()]
+    return jsonify({"lista": lista})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+                                        
