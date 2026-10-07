@@ -1,8 +1,4 @@
 flask
-google-generativeai
-elevenlabs
-requests
-moviepy==1.0.3
-Pillow
 gTTS
-python-dotenv
+requests
+moviepy
