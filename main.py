@@ -1,462 +1,377 @@
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, render_template_string, request, jsonify, send_file, after_this_request
 import os
 import re
 import io
 import requests
-from gtts import gTTS
-from moviepy.editor import *
-from PIL import Image, ImageDraw, ImageFont
 import tempfile
-from bs4 import BeautifulSoup
+import json
+from gtts import gTTS
+from moviepy.editor import AudioFileClip, ImageClip, CompositeVideoClip, TextClip, concatenate_videoclips
 
 app = Flask(__name__)
 
-# 🎭 VOZES DISPONÍVEIS
-VOZES = {
-    "narrador": {"nome": "Narrador", "prefixo": "", "cor": "#d4bfff"},
-    "heroi": {"nome": "Herói", "prefixo": "Com determinação: ", "cor": "#90ee90"},
-    "heroina": {"nome": "Heroína", "prefixo": "Com voz suave: ", "cor": "#87ceeb"},
-    "vilao": {"nome": "Vilão", "prefixo": "Com tom sombrio: ", "cor": "#ff6b6b"},
-    "sabio": {"nome": "Sábio", "prefixo": "Com calma e sabedoria: ", "cor": "#ffd700"},
-    "crianca": {"nome": "Criança", "prefixo": "Com voz leve: ", "cor": "#ffb6c1"},
-    "narrador_profundo": {"nome": "Narrador Sério", "prefixo": "Com tom solene: ", "cor": "#b8a9ff"}
+# === DADOS ===
+VOZES_DISPONIVEIS = {
+    "narrador": {"nome": "Narrador / Neutro", "prefixo": ""},
+    "heroi": {"nome": "Herói (Enérgico)", "prefixo": "Com determinação e coragem: "},
+    "vilao": {"nome": "Vilão (Grave/Sombrio)", "prefixo": "Com tom frio e ameaçador: "},
+    "princesa": {"nome": "Princesa (Suave)", "prefixo": "Com voz doce e gentil: "},
+    "misterioso": {"nome": "Misterioso (Sussurrado)", "prefixo": "Em tom baixo e enigmático: "},
+    "anciao": {"nome": "Ancião (Sábio)", "prefixo": "Com voz calma e experiente: "}
 }
 
-# 🎨 ESTILOS VISUAIS
-ESTILOS = {
-    "fantasia_epica": {
-        "nome": "Fantasia Épica",
-        "cor1": "#1a1a3e", "cor2": "#2d1b69", "texto": "#e0d0ff",
-        "desc": "Céus estrelados, reinos mágicos"
+BANCO_NOVELS = [
+    {
+        "titulo": "O Despertar das Sombras",
+        "resumo": "Em um mundo onde a luz está desaparecendo, Lira, uma jovem guardiã, encontra Kael, um guerreiro exilado. Juntos, eles devem cruzar terras proibidas para selar o Reino das Sombras antes que ele consuma tudo.",
+        "capa": "https://picsum.photos/id/237/600/400",
+        "genero": "Fantasia / Ação"
     },
-    "sombrio_misterio": {
-        "nome": "Sombrio e Misterioso",
-        "cor1": "#0f0f1a", "cor2": "#1a1a2e", "texto": "#a0a0c0",
-        "desc": "Noite, segredos, perigo"
+    {
+        "titulo": "A Vilã Rejeitada Renascida",
+        "resumo": "Uma leitora morre e renasce no corpo da vilã de um romance que conhece de cor. Sabendo que está destinada a morrer, ela rejeita o príncipe e conquista seu próprio poder para mudar o destino.",
+        "capa": "https://picsum.photos/id/22/600/400",
+        "genero": "Isekai / Romance"
     },
-    "aventura_brilhante": {
-        "nome": "Aventura Brilhante",
-        "cor1": "#1e3a5f", "cor2": "#2a5298", "texto": "#ffd700",
-        "desc": "Sol, jornada, esperança"
+    {
+        "titulo": "Código & Cultivo Digital",
+        "resumo": "Um programador acorda em um universo onde códigos são magia. Para sobreviver, precisa dominar a 'linguagem dos deuses', subir de nível e descobrir por que foi trazido para lá.",
+        "capa": "https://picsum.photos/id/180/600/400",
+        "genero": "Sci-Fi / Cultivo"
     },
-    "romance_doce": {
-        "nome": "Romance Doce",
-        "cor1": "#3d1f3d", "cor2": "#5a2f5a", "texto": "#ffd0e0",
-        "desc": "Afeto, momentos ternos"
+    {
+        "titulo": "A Herdeira das Estrelas Perdidas",
+        "resumo": "Filha esquecida de um império galáctico descobre seus poderes ao completar 18 anos. Deve viajar entre planetas para reunir fragmentos de um relicário e impedir uma guerra interestelar.",
+        "capa": "https://picsum.photos/id/119/600/400",
+        "genero": "Espaço / Aventura"
     },
-    "acao_energia": {
-        "nome": "Ação e Energia",
-        "cor1": "#2b1010", "cor2": "#501a1a", "texto": "#ffcc00",
-        "desc": "Batalhas, movimento, tensão"
+    {
+        "titulo": "O Último Guardião da Chama",
+        "resumo": "O fogo sagrado que mantém o mundo vivo está apagando. O último portador do fogo precisa encontrar a Origem, enfrentar criaturas das trevas e reacender a esperança.",
+        "capa": "https://picsum.photos/id/133/600/400",
+        "genero": "Fantasia Épica"
     }
-}
+]
 
-# 📄 INTERFACE COMPLETA
-HTML = """
+HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="dark scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NovelVision — Transforme Leitura em Vídeo 🎬</title>
+    <title>NovelToVision — Estúdio de Criação Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {--bg: #080810; --card: #121224; --accent: #a855f7; --texto: #e5e7eb;}
-        body {background: var(--bg); color: var(--texto); font-family: sans-serif;}
-        .card {background: var(--card); border: 1px solid rgba(168, 85, 247, 0.2);}
-        .btn {background: linear-gradient(90deg, #a855f7, #ec4899); transition: transform 0.2s;}
-        .btn:hover {opacity: 0.9; transform: scale(1.02);}
-        .btn-secundario {background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);}
-        .aba {transition: all 0.2s;}
-        .aba.ativa {background: rgba(168, 85, 247, 0.2); border-bottom: 2px solid #a855f7;}
-        @keyframes rodar {to {transform: rotate(360deg);}}
-        .carregando {animation: rodar 1s linear infinite;}
+        :root {
+            --bg-dark: #030308;
+            --accent-purple: #9333ea;
+            --accent-pink: #ec4899;
+            --accent-cyan: #06b6d4;
+        }
+        body {
+            background-color: var(--bg-dark);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: #f3f4f6;
+            overflow-x: hidden;
+        }
+        /* Glow Mesh Background */
+        .glow-mesh {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: -1;
+            background: 
+                radial-gradient(circle at 15% 20%, rgba(147, 51, 234, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 85% 60%, rgba(236, 72, 153, 0.12) 0%, transparent 40%),
+                radial-gradient(circle at 50% 90%, rgba(6, 182, 212, 0.1) 0%, transparent 50%);
+            filter: blur(40px);
+        }
+        /* Glassmorphism Ultra */
+        .glass-card {
+            background: rgba(13, 13, 26, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.5);
+        }
+        .glass-card:hover {
+            border-color: rgba(147, 51, 234, 0.3);
+        }
+        .glass-input {
+            background: rgba(5, 5, 12, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        .glass-input:focus {
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 15px rgba(147, 51, 234, 0.3);
+            outline: none;
+        }
+        /* Text Gradients */
+        .text-gradient {
+            background: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .text-gradient-cyan {
+            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        /* Botões Estilizados */
+        .btn-gradient {
+            background: linear-gradient(135deg, #9333ea 0%, #ec4899 100%);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 20px rgba(147, 51, 234, 0.3);
+        }
+        .btn-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(236, 72, 153, 0.5);
+            filter: brightness(1.1);
+        }
+        .btn-gradient:active {
+            transform: translateY(0);
+        }
+        /* Animações e Transições */
+        .card-hover {
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .card-hover:hover {
+            transform: translateY(-6px) scale(1.01);
+            box-shadow: 0 20px 30px -10px rgba(147, 51, 234, 0.3);
+        }
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+        }
+        .pulse-glow { animation: pulseGlow 3s infinite; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 99px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(147, 51, 234, 0.5); }
+        
+        /* Toast Notification */
+        #toast {
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        #toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
     </style>
 </head>
-<body class="min-h-screen p-4">
-    <div class="max-w-3xl mx-auto">
-        <h1 class="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            🎬 NovelVision
-        </h1>
-        <p class="text-center text-gray-400 mb-8">Transforme capítulos de webnovel em vídeo para assistir</p>
+<body class="min-h-screen relative custom-scrollbar">
 
-        <!-- ABAS -->
-        <div class="flex mb-6 rounded-lg overflow-hidden">
-            <button class="aba ativa flex-1 py-3 px-4 font-bold" onclick="mudarAba('texto')" id="aba_texto">
-                <i class="fa-solid fa-pen-to-square mr-2"></i>Colar Texto
-            </button>
-            <button class="aba flex-1 py-3 px-4 font-bold text-gray-400" onclick="mudarAba('busca')" id="aba_busca">
-                <i class="fa-solid fa-globe mr-2"></i>Buscar Novel
-            </button>
-        </div>
+    <!-- Fundo de iluminação dinâmica -->
+    <div class="glow-mesh"></div>
 
-        <!-- ABA: COLAR TEXTO -->
-        <div id="painel_texto">
-            <div class="card rounded-xl p-5 mb-6">
-                <h2 class="font-bold text-lg mb-3">📖 Cole o capítulo</h2>
-                <textarea id="texto" rows="10" class="w-full p-4 rounded-lg bg-gray-900/50 border border-purple-500/30 focus:border-purple-400 outline-none"
-                placeholder="Cole o texto do capítulo aqui...&#10;&#10;Formato:&#10;**Narrador:** Texto da história&#10;**Nome:** Fala do personagem">
-**Narrador:** O sol se punha sobre as torres de Eldoria. O céu brilhava em tons de roxo e ouro.
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-gray-900/90 border border-purple-500/40 text-white px-5 py-3.5 rounded-2xl shadow-2xl backdrop-blur-xl">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-purple-400 text-lg"></i>
+        <span id="toastMsg" class="text-sm font-medium">Ação concluída com sucesso!</span>
+    </div>
 
-**Lira:** Kael, olha para o horizonte. Há algo estranho na névoa.
-
-**Kael:** Eu sinto isso há horas. O selo está enfraquecendo.
-
-**Narrador:** Naquela noite, decidiram partir. Ninguém sabia o que encontrariam, mas não havia escolha.
-
-**Lira:** Não vamos recuar agora.
-
-**Kael:** Juntos, chegaremos ao fim.
-                </textarea>
+    <!-- Navegação -->
+    <header class="sticky top-0 z-40 border-b border-white/5 bg-black/40 backdrop-blur-xl">
+        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
+                    <i class="fa-solid fa-wand-magic-sparkles text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-extrabold tracking-wider text-white">Novel<span class="text-gradient">ToVision</span></h1>
+                    <p class="text-[10px] text-gray-400 tracking-widest uppercase font-semibold">AI Video Generator Studio</p>
+                </div>
             </div>
+            
+            <nav class="hidden md:flex items-center gap-1 bg-white/5 p-1.5 rounded-2xl border border-white/10">
+                <a href="#busca" class="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition">
+                    <i class="fa-solid fa-compass mr-1.5 text-purple-400"></i>Explorar
+                </a>
+                <a href="#editor" class="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition">
+                    <i class="fa-solid fa-pen-nib mr-1.5 text-pink-400"></i>Editor
+                </a>
+                <a href="#personagens" class="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition">
+                    <i class="fa-solid fa-microphone mr-1.5 text-cyan-400"></i>Vozes
+                </a>
+                <a href="#video" class="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition">
+                    <i class="fa-solid fa-film mr-1.5 text-amber-400"></i>Estúdio Vídeo
+                </a>
+            </nav>
         </div>
+    </header>
 
-        <!-- ABA: BUSCAR NOVEL -->
-        <div id="painel_busca" class="hidden">
-            <div class="card rounded-xl p-5 mb-6">
-                <h2 class="font-bold text-lg mb-3">🔍 Buscar capítulo na web</h2>
-                <p class="text-sm text-gray-400 mb-3">Cole o link do capítulo ou digite o nome da novel</p>
-                <input type="text" id="link_busca" placeholder="Ex: centralnovel.com/nome-do-capitulo"
-                    class="w-full p-3 rounded-lg bg-gray-900/50 border border-purple-500/30 focus:border-purple-400 outline-none mb-3">
-                <button onclick="buscarCapitulo()" class="btn-secundario w-full py-3 rounded-lg font-bold">
-                    <i class="fa-solid fa-magnifying-glass mr-2"></i>Buscar Capítulo
-                </button>
-                <div id="resultado_busca" class="mt-4 hidden">
-                    <h3 class="font-bold text-green-400 mb-2">✅ Capítulo encontrado!</h3>
-                    <textarea id="texto_busca" rows="8" class="w-full p-3 rounded-lg bg-gray-900/50 border border-green-500/30 mb-3"></textarea>
-                    <button onclick="usarTextoBuscado()" class="btn w-full py-2 rounded-lg font-bold">
-                        <i class="fa-solid fa-check mr-2"></i>Usar este capítulo
+    <main class="max-w-7xl mx-auto px-6 py-10 space-y-16">
+
+        <!-- HERO SECTION / BANNER -->
+        <section class="relative rounded-3xl overflow-hidden p-8 md:p-12 glass-card border-purple-500/20">
+            <div class="absolute -right-10 -bottom-10 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="max-w-2xl space-y-4 relative z-10">
+                <span class="px-3.5 py-1.5 rounded-full text-xs font-bold bg-purple-500/10 border border-purple-500/30 text-purple-300 inline-flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+                    Versão 2.0 Pro Ativa
+                </span>
+                <h2 class="text-3xl md:text-5xl font-black leading-tight tracking-tight">
+                    Transforme <span class="text-gradient">Web Novels</span> em Vídeos Impressionantes
+                </h2>
+                <p class="text-gray-400 text-sm md:text-base font-normal leading-relaxed">
+                    Converta capítulos, diálogos e narrações em curtas dinâmicos com narração por voz inteligente, formatação automática e legendas personalizadas em minutos.
+                </p>
+            </div>
+        </section>
+
+        <!-- === BUSCA DE NOVELS === -->
+        <section id="busca" class="space-y-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-2xl font-bold flex items-center gap-3">
+                        <i class="fa-solid fa-fire text-purple-400"></i>
+                        Explorar Biblioteca
+                    </h3>
+                    <p class="text-xs text-gray-400 mt-1">Selecione uma história pronta para testar o gerador instantaneamente.</p>
+                </div>
+                <div class="relative min-w-[300px]">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                    <input type="text" id="termoBusca" onkeyup="buscarNovels()" placeholder="Pesquisar por título ou gênero..."
+                        class="w-full pl-11 pr-4 py-3 rounded-2xl glass-input text-xs font-medium text-white placeholder-gray-500">
+                </div>
+            </div>
+
+            <div id="resultadosBusca" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Cards renderizados via JS -->
+            </div>
+        </section>
+
+        <!-- === EDITOR DE TEXTO === -->
+        <section id="editor" class="space-y-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-2xl font-bold flex items-center gap-3">
+                        <i class="fa-solid fa-pen-to-square text-pink-400"></i>
+                        Editor de Capítulos
+                    </h3>
+                    <p class="text-xs text-gray-400 mt-1">Escreva ou cole a história. Use a marcação <code class="text-pink-300">**Nome:** Fala</code> para atribuir vozes aos personagens.</p>
+                </div>
+                
+                <!-- Indicadores dinâmicos -->
+                <div class="hidden sm:flex items-center gap-4 text-xs text-gray-400 bg-white/5 px-4 py-2 rounded-xl border border-white/5">
+                    <span><strong id="contadorCaracteres" class="text-purple-400">0</strong> Caracteres</span>
+                    <span class="w-1 h-1 bg-gray-600 rounded-full"></span>
+                    <span><strong id="contadorPalavras" class="text-pink-400">0</strong> Palavras</span>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-3xl p-4 border border-white/10 space-y-4">
+                <textarea id="textoHistoria" rows="10" oninput="atualizarEstatisticas()"
+                    class="w-full rounded-2xl glass-input p-5 text-sm leading-relaxed custom-scrollbar text-gray-200 placeholder-gray-600 focus:ring-0"
+                    placeholder='Cole seu texto aqui... Exemplo:&#10;&#10;O vento soprava forte nas montanhas do sul.&#10;&#10;**Lira:** Nós não podemos recuar agora!&#10;&#10;**Kael:** Eu cubro a sua retaguarda. Avance!'>O sol se punha sobre a cidade antiga. Lira observava do alto da torre.
+
+**Lira:** O que vamos fazer agora?
+
+**Kael:** Vamos enfrentar o Reino das Sombras. Não há volta.
+
+**Narrador:** E assim começou a jornada que mudaria tudo.</textarea>
+
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+                    <span class="text-xs text-gray-400 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-info text-purple-400"></i>
+                        Parágrafos vazios dividem as cenas automaticamente.
+                    </span>
+                    <button onclick="processarTexto()" class="w-full sm:w-auto btn-gradient px-8 py-3.5 rounded-2xl text-xs font-bold tracking-wide uppercase flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Analisar & Estruturar Cenas
                     </button>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- CONFIGURAÇÕES -->
-        <div class="card rounded-xl p-5 mb-6">
-            <h2 class="font-bold text-lg mb-3">⚙️ Configurações do vídeo</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                    <label class="text-sm text-gray-400">Formato do vídeo</label>
-                    <select id="formato" class="w-full mt-1 p-2 rounded-lg bg-gray-900/50 border border-purple-500/30">
-                        <option value="vertical">📱 Vertical 9:16 (TikTok/Reels)</option>
-                        <option value="paisagem">📺 Paisagem 16:9 (YouTube)</option>
-                        <option value="quadrado">⬜ Quadrado 1:1</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="text-sm text-gray-400">Estilo visual</label>
-                    <select id="estilo" class="w-full mt-1 p-2 rounded-lg bg-gray-900/50 border border-purple-500/30">
-                        <option value="fantasia_epica">🏰 Fantasia Épica</option>
-                        <option value="sombrio_misterio">🌙 Sombrio e Misterioso</option>
-                        <option value="aventura_brilhante">☀️ Aventura Brilhante</option>
-                        <option value="romance_doce">💕 Romance Doce</option>
-                        <option value="acao_energia">⚔️ Ação e Energia</option>
-                    </select>
-                </div>
-            </div>
+        <!-- === PERSONAGENS & VOZES === -->
+        <section id="personagens" class="space-y-6">
             <div>
-                <label class="text-sm text-gray-400">Voz padrão para personagens não identificados</label>
-                <select id="voz_padrao" class="w-full mt-1 p-2 rounded-lg bg-gray-900/50 border border-purple-500/30">
-                    <option value="narrador">Narrador</option>
-                    <option value="heroina">Heroína</option>
-                    <option value="heroi">Herói</option>
-                    <option value="sabio">Sábio</option>
-                </select>
+                <h3 class="text-2xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-microphone-lines text-cyan-400"></i>
+                    Atribuição de Vozes
+                </h3>
+                <p class="text-xs text-gray-400 mt-1">Escolha o tom de voz ideal para cada personagem detectado no capítulo.</p>
             </div>
-        </div>
 
-        <!-- BOTÃO PRINCIPAL -->
-        <button onclick="criarVideo()" class="btn w-full py-4 rounded-xl font-bold text-lg mb-6">
-            <i class="fa-solid fa-film mr-2"></i> 🎬 Criar Vídeo Agora
-        </button>
-
-        <!-- STATUS -->
-        <div id="status" class="hidden card rounded-xl p-5 text-center">
-            <i class="fa-solid fa-spinner carregando text-2xl text-purple-400 mb-3"></i>
-            <p id="texto_status">Processando capítulo...</p>
-            <div class="w-full bg-gray-800 rounded-full h-2 mt-3">
-                <div id="barra_progresso" class="bg-purple-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            <div id="listaPersonagens" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Personagens renderizados via JS -->
             </div>
-        </div>
+        </section>
 
-        <!-- RESULTADO -->
-        <div id="resultado" class="hidden card rounded-xl p-5 text-center">
-            <i class="fa-solid fa-check-circle text-3xl text-green-400 mb-3"></i>
-            <h3 class="font-bold text-lg mb-2">🎉 Vídeo Pronto!</h3>
-            <video id="player_video" controls class="w-full rounded-lg mb-4 bg-black"></video>
-            <a id="link_download" class="btn inline-block px-6 py-3 rounded-xl font-bold" download="novel_capitulo.mp4">
-                <i class="fa-solid fa-download mr-2"></i> Baixar Vídeo .MP4
-            </a>
-        </div>
-    </div>
+        <!-- === ESTÚDIO DE GERAÇÃO DE VÍDEO === -->
+        <section id="video" class="space-y-6">
+            <div>
+                <h3 class="text-2xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-sliders text-amber-400"></i>
+                    Configurações do Vídeo
+                </h3>
+                <p class="text-xs text-gray-400 mt-1">Ajuste o formato de renderização e estilos das legendas para sua rede social.</p>
+            </div>
 
-<script>
-function mudarAba(nome){
-    document.querySelectorAll('.aba').forEach(a=>a.classList.remove('ativa', 'text-white'));
-    document.querySelectorAll('.aba').forEach(a=>a.classList.add('text-gray-400'));
-    document.getElementById('aba_'+nome).classList.add('ativa', 'text-white');
-    document.getElementById('aba_'+nome).classList.remove('text-gray-400');
-    
-    document.getElementById('painel_texto').classList.toggle('hidden', nome!=='texto');
-    document.getElementById('painel_busca').classList.toggle('hidden', nome!=='busca');
-}
+            <div class="glass-card rounded-3xl p-6 md:p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    
+                    <!-- Formato -->
+                    <div class="space-y-2">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-purple-300">
+                            <i class="fa-solid fa-mobile-screen mr-2"></i>Formato do Vídeo
+                        </label>
+                        <select id="videoFormato" class="w-full px-4 py-3.5 rounded-2xl glass-input text-xs font-medium text-white">
+                            <option value="9:16">Vertical 9:16 (TikTok / Reels / Shorts)</option>
+                            <option value="16:9">Horizontal 16:9 (YouTube Standard)</option>
+                            <option value="1:1">Quadrado 1:1 (Feed Instagram)</option>
+                        </select>
+                    </div>
 
-async function buscarCapitulo(){
-    const link = document.getElementById('link_busca').value.trim();
-    if(!link){alert('Digite um link ou nome!'); return;}
-    
-    document.getElementById('resultado_busca').classList.add('hidden');
-    
-    const resp = await fetch('/buscar', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({link})
-    });
-    
-    const dados = await resp.json();
-    if(dados.sucesso){
-        document.getElementById('texto_busca').value = dados.texto;
-        document.getElementById('resultado_busca').classList.remove('hidden');
-    }else{
-        alert('Não foi possível buscar: ' + dados.erro);
-    }
-}
+                    <!-- Duração -->
+                    <div class="space-y-2">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-purple-300">
+                            <i class="fa-regular fa-clock mr-2"></i>Duração Mín. por Cena
+                        </label>
+                        <select id="duracaoCena" class="w-full px-4 py-3.5 rounded-2xl glass-input text-xs font-medium text-white">
+                            <option value="3">3 Segundos (Rápido)</option>
+                            <option value="5" selected>5 Segundos (Recomendado)</option>
+                            <option value="8">8 Segundos (Pausado)</option>
+                        </select>
+                    </div>
 
-function usarTextoBuscado(){
-    document.getElementById('texto').value = document.getElementById('texto_busca').value;
-    mudarAba('texto');
-    alert('Capítulo carregado! Agora é só criar o vídeo 🎬');
-}
+                    <!-- Legendas -->
+                    <div class="space-y-2">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-purple-300">
+                            <i class="fa-solid fa-closed-captioning mr-2"></i>Estilo das Legendas
+                        </label>
+                        <select id="estiloLegenda" class="w-full px-4 py-3.5 rounded-2xl glass-input text-xs font-medium text-white">
+                            <option value="nenhuma">Sem Legendas</option>
+                            <option value="branca" selected>Legenda Branca Clean</option>
+                            <option value="amarela">Legenda Amarelo Neon (Destaque)</option>
+                        </select>
+                    </div>
+                </div>
 
-async function criarVideo(){
-    const texto = document.getElementById('texto').value.trim();
-    if(!texto){alert('Cole ou busque um capítulo primeiro!'); return;}
+                <div class="pt-4 border-t border-white/5 flex flex-col items-center">
+                    <button onclick="gerarVideo()" class="w-full md:w-auto btn-gradient px-12 py-4 rounded-2xl text-sm font-extrabold tracking-wider uppercase flex items-center justify-center gap-3">
+                        <i class="fa-solid fa-clapperboard text-lg"></i> Gerar Vídeo Completo
+                    </button>
+                </div>
 
-    document.getElementById('status').classList.remove('hidden');
-    document.getElementById('resultado').classList.add('hidden');
-    document.getElementById('barra_progresso').style.width = '5%';
-    document.getElementById('texto_status').textContent = 'Preparando...';
+                <!-- Barra de Progresso Dinâmica -->
+                <div id="progressoVideo" class="hidden space-y-3 p-6 rounded-2xl bg-black/40 border border-purple-500/20">
+                    <div class="flex items-center justify-between text-xs font-semibold">
+                        <span class="text-purple-300 flex items-center gap-2">
+                            <i class="fa-solid fa-spinner animate-spin text-pink-400"></i>
+                            Renderizando faixas de áudio e composições visuais...
+                        </span>
+                        <span id="porcentagemProgresso" class="text-pink-400">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-800 h-2.5 rounded-full overflow-hidden p-0.5">
+                        <div id="barraProgresso" class="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 rounded-full transition-all duration-300 w-0"></div>
+                    </div>
+                </div>
 
-    try{
-        const resp = await fetch('/gerar-video', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                texto: texto,
-                formato: document.getElementById('formato').value,
-                estilo: document.getElementById('estilo').value,
-                voz_padrao: document.getElementById('voz_padrao').value
-            })
-        });
-
-        document.getElementById('barra_progresso').style.width = '40%';
-        document.getElementById('texto_status').textContent = 'Gerando narração...';
-
-        const blob = await resp.blob();
-
-        document.getElementById('barra_progresso').style.width = '100%';
-        document.getElementById('texto_status').textContent = 'Pronto! 🎉';
-
-        setTimeout(()=>{
-            document.getElementById('status').classList.add('hidden');
-            document.getElementById('resultado').classList.remove('hidden');
-            const url = URL.createObjectURL(blob);
-            document.getElementById('player_video').src = url;
-            document.getElementById('link_download').href = url;
-        }, 600);
-    }catch(erro){
-        alert('Erro: ' + erro);
-        document.getElementById('status').classList.add('hidden');
-    }
-}
-</script>
-</body>
-</html>
-"""
-
-# 🎨 CRIAR IMAGEM DE FUNDO
-def criar_imagem(texto_cena, estilo_nome, larg, alt):
-    estilo = ESTILOS.get(estilo_nome, ESTILOS["fantasia_epica"])
-    c1 = estilo["cor1"]
-    c2 = estilo["cor2"]
-    cor_texto = estilo["texto"]
-
-    img = Image.new("RGB", (larg, alt), c1)
-    draw = ImageDraw.Draw(img)
-
-    # Gradiente vertical
-    r1, g1, b1 = int(c1[1:3],16), int(c1[3:5],16), int(c1[5:7],16)
-    r2, g2, b2 = int(c2[1:3],16), int(c2[3:5],16), int(c2[5:7],16)
-    
-    for y in range(alt):
-        f = y / alt
-        r = int(r1 + (r2 - r1) * f)
-        g = int(g1 + (g2 - g1) * f)
-        b = int(b1 + (b2 - b1) * f)
-        draw.line([(0, y), (larg, y)], fill=(r, g, b))
-
-    # Fonte
-    try:
-        if os.path.exists("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
-            fonte = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(24, int(larg / 22)))
-        else:
-            fonte = ImageFont.load_default()
-    except:
-        fonte = ImageFont.load_default()
-
-    # Quebrar texto em linhas
-    linhas = []
-    linha_atual = ""
-    for palavra in texto_cena.split():
-        teste = f"{linha_atual} {palavra}".strip()
-        if draw.textlength(teste, fonte) > larg * 0.9:
-            linhas.append(linha_atual)
-            linha_atual = palavra
-        else:
-            linha_atual = teste
-    if linha_atual:
-        linhas.append(linha_atual)
-
-    # Centralizar
-    espaco_entre_linhas = int(alt / 18)
-    total_linhas = len(linhas) * espaco_entre_linhas
-    y = (alt - total_linhas) / 2.5
-
-    for linha in linhas:
-        w = draw.textlength(linha, fonte)
-        draw.text(((larg - w) / 2, y), linha, fill=cor_texto, font=fonte)
-        y += espaco_entre_linhas
-
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    return buf
-
-# 🔍 BUSCAR CAPÍTULO NA WEB
-@app.route("/buscar", methods=["POST"])
-def buscar_capitulo():
-    dados = request.get_json()
-    link = dados.get("link", "").strip()
-    
-    if not link.startswith("http"):
-        link = f"https://{link}"
-    
-    try:
-        cabecalhos = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        resp = requests.get(link, headers=cabecalhos, timeout=15)
-        
-        if resp.status_code != 200:
-            return {"sucesso": False, "erro": f"Não consegui acessar (código {resp.status_code})"}
-        
-        soup = BeautifulSoup(resp.text, "html.parser")
-        
-        # Remove elementos que não são texto
-        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
-            tag.decompose()
-        
-        texto = soup.get_text(separator="\n", strip=True)
-        
-        # Limpa linhas vazias repetidas
-        linhas = [l.strip() for l in texto.split("\n") if l.strip()]
-        texto_limpo = "\n\n".join(linhas[:100])  # Limita tamanho
-        
-        if len(texto_limpo) < 50:
-            return {"sucesso": False, "erro": "Conteúdo muito curto ou não encontrado"}
-        
-        return {"sucesso": True, "texto": texto_limpo}
-    
-    except Exception as e:
-        return {"sucesso": False, "erro": str(e)}
-
-# 🎬 GERAR VÍDEO
-@app.route("/gerar-video", methods=["POST"])
-def gerar_video():
-    dados = request.get_json()
-    texto = dados.get("texto", "")
-    formato = dados.get("formato", "vertical")
-    estilo = dados.get("estilo", "fantasia_epica")
-    voz_padrao = dados.get("voz_padrao", "narrador")
-
-    # Dimensões
-    dimensoes = {
-        "vertical": (1080, 1920),
-        "paisagem": (1920, 1080),
-        "quadrado": (1080, 1080)
-    }
-    largura, altura = dimensoes.get(formato, (1080, 1920))
-
-    # Extrair falas no formato **Nome:** Texto
-    padrao = re.compile(r"\*\*([^*]+?)\*\*:\s*(.+?)(?=\n\s*\n|\Z)", re.DOTALL)
-    trechos = padrao.findall(texto)
-
-    if not trechos:
-        # Se não tiver formato, usa tudo como narrador
-        trechos = [("Narrador", texto)]
-
-    clips = []
-    pasta_temp = tempfile.TemporaryDirectory()
-
-    try:
-        for indice, (nome_pessoa, fala) in enumerate(trechos):
-            # Define voz
-            chave_voz = nome_pessoa.lower().strip()
-            if chave_voz not in VOZES:
-                chave_voz = voz_padrao
-            configuracao_voz = VOZES[chave_voz]
-
-            # Gera áudio
-            texto_audio = f"{configuracao_voz['prefixo']}{fala}".strip()
-            tts = gTTS(text=texto_audio, lang="pt-BR", slow=False)
-            caminho_audio = f"{pasta_temp.name}/audio_{indice}.mp3"
-            tts.save(caminho_audio)
-            clip_audio = AudioFileClip(caminho_audio)
-
-            # Gera imagem
-            texto_imagem = f"{nome_pessoa}: {fala[:70]}..."
-            buffer_imagem = criar_imagem(texto_imagem, estilo, largura, altura)
-            caminho_imagem = f"{pasta_temp.name}/imagem_{indice}.jpg"
-            with open(caminho_imagem, "wb") as f:
-                f.write(buffer_imagem.read())
-            
-            clip_imagem = ImageClip(caminho_imagem).set_duration(clip_audio.duration)
-            clip_final = clip_imagem.set_audio(clip_audio)
-            clips.append(clip_final)
-
-        # Junta tudo
-        video_completo = concatenate_videoclips(clips, method="compose")
-        caminho_video = f"{pasta_temp.name}/capitulo_video.mp4"
-        
-        video_completo.write_videofile(
-            caminho_video,
-            fps=24,
-            codec="libx264",
-            audio_codec="aac",
-            verbose=False,
-            logger=None
-        )
-
-        # Lê e envia
-        with open(caminho_video, "rb") as f:
-            saida = io.BytesIO(f.read())
-        saida.seek(0)
-
-        return send_file(
-            saida,
-            mimetype="video/mp4",
-            as_attachment=True,
-            download_name="novel_capitulo_video.mp4"
-        )
-
-    finally:
-        pasta_temp.cleanup()
-
-@app.route("/")
-def pagina_inicial():
-    return render_template_string(HTML)
-
-if __name__ == "__main__":
-    porta = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=porta)
+                <!-- Preview e Play
