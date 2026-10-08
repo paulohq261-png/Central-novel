@@ -374,4 +374,405 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
 
-                <!-- Preview e Play
+                <!-- Preview e Player de Vídeo Avançado -->
+                <div id="previewVideo" class="hidden space-y-4 pt-4 border-t border-white/5">
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-sm font-bold text-gray-200 flex items-center gap-2">
+                            <i class="fa-solid fa-circle-play text-green-400"></i>
+                            Pré-visualização do Resultado
+                        </h4>
+                        <div class="flex items-center gap-2">
+                            <button onclick="alternarLoop()" id="btnLoop" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300 border border-white/10 transition">
+                                <i class="fa-solid fa-repeat mr-1"></i> Loop
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="relative rounded-2xl overflow-hidden bg-black aspect-video max-h-[500px] flex items-center justify-center border border-white/10 shadow-2xl">
+                        <video id="videoPlayer" class="w-full h-full object-contain" controls></video>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+                        <a id="downloadVideo" href="#" download="novel_video.mp4" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3.5 rounded-2xl text-xs font-bold tracking-wide uppercase transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30">
+                            <i class="fa-solid fa-download"></i> Baixar Vídeo MP4
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cenas Divididas -->
+            <div id="cenasContainer" class="space-y-4">
+                <!-- Cenas geradas aqui -->
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="border-t border-white/5 py-8 mt-20 text-center text-xs text-gray-500">
+        <p>NovelToVision Studio — Plataforma de Edição de Mídia Inteligente 🎬✨</p>
+    </footer>
+
+    <script>
+        let cenas = [];
+        let personagensDetectados = new Set();
+
+        // Mostrar Toast Notification
+        function showToast(mensagem, erro = false) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            const toastIcon = document.getElementById('toastIcon');
+
+            toastMsg.innerText = mensagem;
+            if(erro) {
+                toastIcon.className = "fa-solid fa-circle-xmark text-red-400 text-lg";
+            } else {
+                toastIcon.className = "fa-solid fa-circle-check text-purple-400 text-lg";
+            }
+
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3500);
+        }
+
+        // Estatísticas do Editor
+        function atualizarEstatisticas() {
+            const texto = document.getElementById('textoHistoria').value;
+            document.getElementById('contadorCaracteres').innerText = texto.length;
+            const palavras = texto.trim() ? texto.trim().split(/\\s+/).length : 0;
+            document.getElementById('contadorPalavras').innerText = palavras;
+        }
+
+        // Buscar Novels na Rota API
+        async function buscarNovels() {
+            const termo = document.getElementById('termoBusca').value.trim();
+            const container = document.getElementById('resultadosBusca');
+            
+            try {
+                const res = await fetch(`/api/buscar-novels?q=${encodeURIComponent(termo)}`);
+                const dados = await res.json();
+                
+                container.innerHTML = '';
+                if (dados.length === 0) {
+                    container.innerHTML = '<p class="text-xs text-gray-500 col-span-full text-center py-8">Nenhuma história encontrada com este termo.</p>';
+                    return;
+                }
+                
+                dados.forEach(n => {
+                    const card = document.createElement('div');
+                    card.className = 'glass-card rounded-2xl p-5 card-hover cursor-pointer space-y-4 border border-white/5 flex flex-col justify-between';
+                    card.onclick = () => usarNovel(n.titulo, n.resumo);
+                    card.innerHTML = `
+                        <div class="space-y-3">
+                            <div class="relative h-40 rounded-xl overflow-hidden">
+                                <img src="${n.capa}" alt="${n.titulo}" class="w-full h-full object-cover">
+                                <span class="absolute top-3 left-3 bg-black/60 backdrop-blur-md text-purple-300 text-[10px] font-bold px-3 py-1 rounded-full border border-white/10">
+                                    ${n.genero}
+                                </span>
+                            </div>
+                            <h4 class="font-bold text-base text-gray-100 leading-snug">${n.titulo}</h4>
+                            <p class="text-xs text-gray-400 line-clamp-3 leading-relaxed">${n.resumo}</p>
+                        </div>
+                        <div class="pt-2 flex items-center justify-between text-xs font-semibold text-purple-400 group">
+                            <span>Usar esta história</span>
+                            <i class="fa-solid fa-arrow-right transform group-hover:translate-x-1 transition"></i>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) {
+                showToast("Erro ao carregar lista de novels.", true);
+            }
+        }
+
+        function usarNovel(titulo, resumo) {
+            document.getElementById('textoHistoria').value = `# ${titulo}\\n\\n${resumo}`;
+            atualizarEstatisticas();
+            showToast("Capítulo carregado no editor!");
+            window.scrollTo({top: document.getElementById('editor').offsetTop - 100, behavior: 'smooth'});
+        }
+
+        // Processar Texto
+        function processarTexto() {
+            const texto = document.getElementById('textoHistoria').value;
+            personagensDetectados.clear();
+            cenas = [];
+            
+            const padraoFala = /\\*\\*([^*]+?)\\*\\*:/g;
+            let match;
+            while ((match = padraoFala.exec(texto)) !== null) {
+                personagensDetectados.add(match[1].trim());
+            }
+            
+            const lista = document.getElementById('listaPersonagens');
+            lista.innerHTML = '';
+            
+            if (personagensDetectados.size === 0) {
+                lista.innerHTML = `
+                    <div class="col-span-full p-4 rounded-2xl bg-white/5 border border-white/5 text-center text-xs text-gray-400">
+                        Nenhum diálogo com formato <code>**Nome:** Fala</code> foi detectado. Toda a narração usará a voz Padrão/Narrador.
+                    </div>`;
+            } else {
+                personagensDetectados.forEach(p => {
+                    lista.innerHTML += `
+                    <div class="glass-card p-4 rounded-2xl border border-white/10 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-purple-300 flex items-center gap-2">
+                                <i class="fa-solid fa-user-tag text-pink-400"></i> ${p}
+                            </span>
+                        </div>
+                        <select class="w-full px-3 py-2 rounded-xl glass-input text-xs text-white" data-personagem="${p}">
+                            <option value="narrador">Narrador / Neutro</option>
+                            <option value="heroi">Herói (Enérgico)</option>
+                            <option value="vilao">Vilão (Grave)</option>
+                            <option value="princesa">Princesa (Suave)</option>
+                            <option value="misterioso">Misterioso</option>
+                            <option value="anciao">Ancião (Sábio)</option>
+                        </select>
+                    </div>`;
+                });
+            }
+            
+            const blocos = texto.split(/\\n\\s*\\n/);
+            const cenasContainer = document.getElementById('cenasContainer');
+            cenasContainer.innerHTML = '';
+            
+            blocos.forEach((bloco, idx) => {
+                const limpo = bloco.trim();
+                if (!limpo) return;
+                cenas.push({id: idx + 1, texto: limpo});
+                cenasContainer.innerHTML += `
+                <div class="glass-card p-5 rounded-2xl border border-white/5 space-y-2">
+                    <div class="flex items-center justify-between text-xs font-bold text-gray-400">
+                        <span class="text-pink-400">Cena ${idx + 1}</span>
+                        <span>${limpo.length} caracteres</span>
+                    </div>
+                    <p class="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">${limpo}</p>
+                </div>`;
+            });
+            
+            showToast(`${cenas.length} Cenas estruturadas com sucesso!`);
+            window.scrollTo({top: document.getElementById('personagens').offsetTop - 100, behavior: 'smooth'});
+        }
+
+        // Gerar Vídeo
+        async function gerarVideo() {
+            if (cenas.length === 0) {
+                showToast('Processe a história no editor antes de gerar o vídeo!', true);
+                return;
+            }
+
+            const selecoes = {};
+            document.querySelectorAll('[data-personagem]').forEach(s => {
+                selecoes[s.dataset.personagem] = s.value;
+            });
+
+            const progressoBox = document.getElementById('progressoVideo');
+            const barra = document.getElementById('barraProgresso');
+            const porcentagem = document.getElementById('porcentagemProgresso');
+
+            progressoBox.classList.remove('hidden');
+            document.getElementById('previewVideo').classList.add('hidden');
+            
+            // Animação de carregamento simulada
+            let progress = 10;
+            barra.style.width = progress + '%';
+            porcentagem.innerText = progress + '%';
+
+            const timer = setInterval(() => {
+                if(progress < 85) {
+                    progress += Math.floor(Math.random() * 8) + 2;
+                    barra.style.width = progress + '%';
+                    porcentagem.innerText = progress + '%';
+                }
+            }, 800);
+
+            try {
+                const res = await fetch('/api/gerar-video', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        cenas: cenas,
+                        vozesSelecionadas: selecoes,
+                        formato: document.getElementById('videoFormato').value,
+                        duracaoCena: parseInt(document.getElementById('duracaoCena').value),
+                        legenda: document.getElementById('estiloLegenda').value
+                    })
+                });
+
+                clearInterval(timer);
+
+                if (!res.ok) throw new Error("Erro na geração do vídeo");
+
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+
+                barra.style.width = '100%';
+                porcentagem.innerText = '100%';
+
+                setTimeout(() => {
+                    document.getElementById('videoPlayer').src = url;
+                    document.getElementById('downloadVideo').href = url;
+                    document.getElementById('previewVideo').classList.remove('hidden');
+                    progressoBox.classList.add('hidden');
+                    showToast('Vídeo gerado com sucesso!');
+                }, 500);
+
+            } catch (erro) {
+                clearInterval(timer);
+                progressoBox.classList.add('hidden');
+                showToast('Falha na renderização do vídeo.', true);
+            }
+        }
+
+        function alternarLoop() {
+            const player = document.getElementById('videoPlayer');
+            const btn = document.getElementById('btnLoop');
+            player.loop = !player.loop;
+            if(player.loop) {
+                btn.classList.add('bg-purple-600/40', 'border-purple-500');
+            } else {
+                btn.classList.remove('bg-purple-600/40', 'border-purple-500');
+            }
+        }
+
+        // Inicializações
+        buscarNovels();
+        atualizarEstatisticas();
+    </script>
+</body>
+</html>
+"""
+
+@app.route("/")
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route("/api/buscar-novels")
+def api_buscar_novels():
+    q = request.args.get("q", "").strip().lower()
+    if not q:
+        return jsonify(BANCO_NOVELS)
+    filtrados = [
+        n for n in BANCO_NOVELS
+        if q in n["titulo"].lower() or q in n["genero"].lower() or q in n["resumo"].lower()
+    ]
+    return jsonify(filtrados)
+
+@app.route("/api/gerar-video", methods=["POST"])
+def api_gerar_video():
+    dados = request.get_json() or {}
+    cenas = dados.get("cenas", [])
+    vozes_selecionadas = dados.get("vozesSelecionadas", {})
+    formato = dados.get("formato", "9:16")
+    duracao_cena = dados.get("duracaoCena", 5)
+    estilo_legenda = dados.get("legenda", "nenhuma")
+
+    dims = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080)}
+    largura, altura = dims.get(formato, (1080, 1920))
+
+    temp_files = []
+    clips = []
+
+    try:
+        for idx, cena in enumerate(cenas):
+            texto_cena = cena["texto"]
+
+            def processar_fala(match):
+                nome = match.group(1).strip()
+                fala = match.group(2).strip()
+                voz_id = vozes_selecionadas.get(nome, "narrador")
+                prefixo = VOZES_DISPONIVEIS.get(voz_id, {}).get("prefixo", "")
+                return f"{prefixo}{fala}"
+
+            texto_processado = re.sub(r"\*\*([^*]+?)\*\*:\s*(.+)", processar_fala, texto_cena)
+            texto_final = re.sub(r"\*\*([^*]+)\*\*", r"\1", texto_processado)
+
+            # Áudio TTS
+            tts = gTTS(text=texto_final, lang="pt-BR", slow=False)
+            f_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+            temp_files.append(f_audio.name)
+            tts.save(f_audio.name)
+            f_audio.close()
+
+            audio_clip = AudioFileClip(f_audio.name)
+            duracao = max(float(duracao_cena), audio_clip.duration)
+
+            # Imagem de fundo
+            img_url = f"https://picsum.photos/seed/{idx+300}/{largura}/{altura}"
+            f_img = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            temp_files.append(f_img.name)
+            
+            response = requests.get(img_url, timeout=10)
+            f_img.write(response.content)
+            f_img.close()
+
+            imagem_clip = ImageClip(f_img.name).set_duration(duracao)
+
+            # Legendas
+            if estilo_legenda != "nenhuma":
+                cor = "white" if estilo_legenda == "branca" else "#fde047"
+                texto_curto = texto_final[:80] + "..." if len(texto_final) > 80 else texto_final
+
+                try:
+                    txt_clip = TextClip(
+                        texto_curto,
+                        fontsize=42,
+                        color=cor,
+                        font="Arial-Bold",
+                        method="caption",
+                        size=(largura - 120, None)
+                    ).set_position(("center", altura - 260)).set_duration(duracao)
+                    imagem_clip = CompositeVideoClip([imagem_clip, txt_clip])
+                except Exception as text_err:
+                    print(f"TextClip Warning: {text_err}")
+
+            imagem_clip = imagem_clip.set_audio(audio_clip)
+            clips.append(imagem_clip)
+
+        # Unir Cenas
+        video_final = concatenate_videoclips(clips, method="compose")
+
+        f_out = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        out_path = f_out.name
+        f_out.close()
+
+        video_final.write_videofile(
+            out_path,
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+            temp_audiofile=os.path.join(tempfile.gettempdir(), f"temp-audio-{os.getpid()}.m4a"),
+            remove_temp=True
+        )
+
+        for c in clips:
+            c.close()
+        video_final.close()
+
+        @after_this_request
+        def cleanup(response):
+            for path in temp_files:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+            if os.path.exists(out_path):
+                try:
+                    os.remove(out_path)
+                except Exception:
+                    pass
+            return response
+
+        return send_file(out_path, mimetype="video/mp4", as_attachment=True, download_name="novel_video.mp4")
+
+    except Exception as e:
+        for path in temp_files:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=True)
