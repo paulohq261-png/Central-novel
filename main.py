@@ -32,7 +32,11 @@ BANCO_NOVELS = [
     }
 ]
 
-HTML_TEMPLATE = """
+# Converte dicionário para string segura no JS
+import json
+VOZES_JSON = json.dumps(VOZES_DISPONIVEIS, ensure_ascii=False)
+
+HTML_TEMPLATE = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -42,13 +46,13 @@ HTML_TEMPLATE = """
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <style>
-        :root {--bg: #05050f; --accent: #8b5cf6; --accent2: #d946ef; --texto: #e5e7eb;}
-        body {background: var(--bg); color: var(--texto); font-family: sans-serif;}
-        .glass {background: rgba(26,26,46,0.7); backdrop-filter: blur(12px); border: 1px solid rgba(139,92,246,0.2);}
-        .gradient-text {background: linear-gradient(90deg, #8b5cf6, #d946ef, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
-        .btn-gradient {background: linear-gradient(90deg, #8b5cf6, #d946ef);}
-        .btn-gradient:hover {opacity: 0.9;}
-        .card-novel:hover {transform: translateY(-3px); transition: 0.3s; box-shadow: 0 10px 25px rgba(139,92,246,0.2);}
+        :root {{--bg: #05050f; --accent: #8b5cf6; --accent2: #d946ef; --texto: #e5e7eb;}}
+        body {{background: var(--bg); color: var(--texto); font-family: sans-serif;}}
+        .glass {{background: rgba(26,26,46,0.7); backdrop-filter: blur(12px); border: 1px solid rgba(139,92,246,0.2);}}
+        .gradient-text {{background: linear-gradient(90deg, #8b5cf6, #d946ef, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}}
+        .btn-gradient {{background: linear-gradient(90deg, #8b5cf6, #d946ef);}}
+        .btn-gradient:hover {{opacity: 0.9;}}
+        .card-novel:hover {{transform: translateY(-3px); transition: 0.3s; box-shadow: 0 10px 25px rgba(139,92,246,0.2);}}
     </style>
 </head>
 <body class="min-h-screen">
@@ -123,61 +127,61 @@ O sol se punha sobre a torre.
     </main>
 
     <script>
+        const VOZES = {VOZES_JSON};
         let cenas = [];
         let perso = new Set();
-        const vozes = Object.keys({{VOZES}});
 
-        function preparar(){
+        function preparar(){{
             const t = document.getElementById('textoHistoria').value;
             perso.clear(); cenas = [];
             const r = /\\*\\*([^*]+?)\\*\\*:\\s*(.+)/g;
             let m;
             while((m=r.exec(t))!==null) perso.add(m[1].trim());
             const blocos = t.split(/\\n\\n+/);
-            blocos.forEach((b,i)=>{if(b.trim()) cenas.push({id:i+1,texto:b});});
+            blocos.forEach((b,i)=>{{if(b.trim()) cenas.push({{id:i+1,texto:b}});}});
 
             const lista = document.getElementById('listaVozes');
             lista.innerHTML='';
-            if(!perso.size){alert('Escreva algo com: **Nome:** Fala'); return;}
-            perso.forEach(p=>{
+            if(!perso.size){{alert('Escreva algo com: **Nome:** Fala'); return;}}
+            perso.forEach(p=>{{
                 lista.innerHTML += `<div class="glass rounded-lg p-3">
-                    <label class="font-semibold text-purple-300">${p}</label>
-                    <select data-pessoa="${p}" class="mt-2 w-full bg-gray-900/70 rounded-lg p-2">
-                        ${vozes.map((v,i)=>`<option value="${v}" ${i===0?'selected':''}>${{{{VOZES}}}[v].nome}</option>`).join('')}
+                    <label class="font-semibold text-purple-300">${{p}}</label>
+                    <select data-pessoa="${{p}}" class="mt-2 w-full bg-gray-900/70 rounded-lg p-2">
+                        ${{Object.keys(VOZES).map((v,i)=>`<option value="${{v}}" ${{i===0?'selected':''}}>${{VOZES[v].nome}}</option>`).join('')}}
                     </select>
                 </div>`;
-            });
+            }});
             document.getElementById('vozes').classList.remove('hidden');
-            document.getElementById('vozes').scrollIntoView({behavior:'smooth'});
-        }
+            document.getElementById('vozes').scrollIntoView({{behavior:'smooth'}});
+        }}
 
-        async function baixar(){
-            const sel={};
+        async function baixar(){{
+            const sel={{}};
             document.querySelectorAll('[data-pessoa]').forEach(s=>sel[s.dataset.pessoa]=s.value);
             document.getElementById('status').classList.remove('hidden');
             document.getElementById('linkFinal').classList.add('hidden');
-            try{
-                const res = await fetch('/api/baixar', {
+            try{{
+                const res = await fetch('/api/baixar', {{
                     method:'POST',
-                    headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({
+                    headers:{{'Content-Type':'application/json'}},
+                    body:JSON.stringify({{
                         cenas, vozes:sel,
                         formato:document.getElementById('formato').value,
                         duracao:parseInt(document.getElementById('duracao').value),
                         legenda:document.getElementById('legenda').value
-                    })
-                });
+                    }})
+                }});
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
                 document.getElementById('botaoDownload').href = url;
                 document.getElementById('linkFinal').classList.remove('hidden');
-            }catch(e){alert('Erro: '+e);}
-            finally{document.getElementById('status').classList.add('hidden');}
-        }
+            }}catch(e){{alert('Erro: '+e);}}
+            finally{{document.getElementById('status').classList.add('hidden');}}
+        }}
     </script>
 </body>
 </html>
-""".replace("{{VOZES}}", str(VOZES_DISPONIVEIS))
+"""
 
 @app.route("/")
 def index():
@@ -192,8 +196,8 @@ def api_baixar():
     duracao = dados.get("duracao", 5)
     legenda = dados.get("legenda", "nenhuma")
 
-    dims = {"9:16":(1080,1920), "16:9":(1920,1080), "1:1":(1080,1080)}
-    larg, alt = dims.get(formato, (1080,1920))
+    dims = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080)}
+    larg, alt = dims.get(formato, (1080, 1920))
 
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -222,7 +226,7 @@ def api_baixar():
 
             if legenda != "nenhuma":
                 curto = txt_audio[:90] + "..." if len(txt_audio) > 90 else txt_audio
-                zf.writestr(f"cena_{n:02d}/legenda.txt", f"Estilo: {legenda}\\n\\n{curto}")
+                zf.writestr(f"cena_{n:02d}/legenda.txt", f"Estilo: {legenda}\n\n{curto}")
 
         inst = f"""CENTRAL NOVEL 2.0 — PACOTE DE PRODUÇÃO
 Formato: {formato} | Duração: {duracao}s/cena
