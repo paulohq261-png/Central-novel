@@ -1,8 +1,7 @@
 flask==2.3.3
 gTTS==2.5.1
 requests==2.31.0
-moviepy==1.0.3
-pillow==10.1.0
+Pillow==9.5.0
 beautifulsoup4==4.12.2
 
 
