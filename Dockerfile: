@@ -1,7 +1,18 @@
+FROM python:3.10-slim
+
+# Instala dependências de sistema necessárias (FFmpeg e ImageMagick)
 RUN apt-get update && apt-get install -y \
-    python3-dev \
-    libjpeg-dev \
-    zlib1g-dev \
+    ffmpeg \
     imagemagick \
-    ffmpeg
-    
+    && rm -rf /var/lib/apt/lists/*
+
+# Permite que o ImageMagick processe texto sem bloqueios de política
+RUN sed -i 's/rights="none" pattern="LABEL"/rights="read|write" pattern="LABEL"/' /etc/ImageMagick-6/policy.xml || true
+
+WORKDIR /app
+COPY . .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 8080
+CMD ["python", "app.py"]
